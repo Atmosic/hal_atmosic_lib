@@ -2,4 +2,6 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-rsource "*/Kconfig"
+config ZSG_TOOL_PATH
+	string "ZSG tool path"
+	default "${ZEPHYR_BASE}/../modules/hal/atmosic_lib/tools/zsg"
