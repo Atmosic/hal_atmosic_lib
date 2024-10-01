@@ -1,0 +1,1459 @@
+The following changes since commit d2ed58ae5f7ed54b543f54330cd1147b013883b3:
+
+  Update readme (2023-10-31 01:01:44 +0100)
+
+are available in the Git repository at:
+
+  /prj/digital/db/contrib/zephyr-settings-generator.git atmosic_dev
+
+for you to fetch changes up to 02a86a7033ac75bf449ac8d42d1ec89a770e3d8f:
+
+  [SOFTWARE-6882][Zephyr] Rename erase_block_size to part_sector_size (2024-09-19 01:43:27 -0700)
+
+----------------------------------------------------------------
+Hormoz Zarnani (1):
+      Fix GCC 11 build errors in Atmosic code
+
+Tiffany (1):
+      [SOFTWARE-6092][Zephyr] Integrate Zephyr settings with the setting_generate sample code with CMAKE build.
+
+thsieh (4):
+      [SOFTWARE-6092][Zephyr] Resolved the key name length bug
+      [SOFTWARE-6845][zephyr-settings-generator] Add decimal type checking
+      [SOFTWARE-6845][zephyr-settings-generator] Revert the changes to 'Add decimal type checking'
+      [SOFTWARE-6882][Zephyr] Rename erase_block_size to part_sector_size
+
+ CMakeLists.txt                               |  41 +++++-
+ Readme.md                                    |  35 ++++++
+ run_zsg.bat                                  |  44 +++++++
+ sample.yml                                   |   4 +
+ src/CMakeLists.txt                           |  14 ++-
+ src/atmosic/CMakeLists.txt                   |  13 ++
+ src/atmosic/atm_settingsreader.cpp           |  59 +++++++++
+ src/atmosic/atm_settingswriter.cpp           | 121 ++++++++++++++++++
+ src/atmosic/atm_tool.cpp                     | 179 +++++++++++++++++++++++++++
+ src/atmosic/atm_util.cpp                     |  32 +++++
+ src/atmosic/include/atm_settingsreader.h     |  29 +++++
+ src/atmosic/include/atm_settingswriter.h     |  49 ++++++++
+ src/atmosic/include/atm_tool.h               |  22 ++++
+ src/atmosic/include/atm_util.h               |  16 +++
+ src/main.cpp                                 |  17 ++-
+ src/nvs/flash.cpp                            |  41 +++---
+ src/nvs/flash.h                              |   2 +
+ src/nvs/nvs.c                                |  13 +-
+ src/nvs/nvs.h                                |   5 +
+ src/settings/include/settings.h              |  15 +++
+ src/settings/include/settings/settings_nvs.h |   7 +-
+ src/settings/settings.c                      |  24 ++--
+ src/settings/settings_init.c                 |  22 ++++
+ src/settings/settings_nvs.c                  |  53 ++++++++
+ src/settings/settings_priv.h                 | 132 --------------------
+ src/settings/settings_store.c                |   2 +
+ src/util/util.h                              |  12 +-
+ 27 files changed, 821 insertions(+), 182 deletions(-)
+ create mode 100644 run_zsg.bat
+ create mode 100644 sample.yml
+ create mode 100644 src/atmosic/CMakeLists.txt
+ create mode 100644 src/atmosic/atm_settingsreader.cpp
+ create mode 100644 src/atmosic/atm_settingswriter.cpp
+ create mode 100644 src/atmosic/atm_tool.cpp
+ create mode 100644 src/atmosic/atm_util.cpp
+ create mode 100644 src/atmosic/include/atm_settingsreader.h
+ create mode 100644 src/atmosic/include/atm_settingswriter.h
+ create mode 100644 src/atmosic/include/atm_tool.h
+ create mode 100644 src/atmosic/include/atm_util.h
+ delete mode 100644 src/settings/settings_priv.h
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a924bc8..ba67236 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -2,15 +2,44 @@
+ # SPDX-License-Identifier: BSD-2-Clause-Patent
+ 
+ cmake_minimum_required(VERSION 3.13)
+-project(zsg DESCRIPTION "zsg is a simple settings generator (using NVS) for the Zephyr RTOS")
+-set (CMAKE_CXX_STANDARD 17)
++project(zsg DESCRIPTION "zsg is a simple settings generator (using NVS) for the Zephyr RTOS" LANGUAGES C CXX)
++set(CMAKE_CXX_STANDARD 20)
+ 
+ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
++option(ATMOSIC_ZSG "Build Atmosic feature" ON)
+ 
+-set(Boost_USE_STATIC_LIBS OFF) 
+-set(Boost_USE_MULTITHREADED ON)  
+-set(Boost_USE_STATIC_RUNTIME OFF) 
+-find_package(Boost 1.67.0 COMPONENTS program_options REQUIRED)
++# Set compiler flag
++if (WIN32)
++set(CMAKE_CXX_FLAGS_DEBUG "/MTd")
++set(CMAKE_CXX_FLAGS_RELEASE "/MT")
++set(CMAKE_C_FLAGS_DEBUG "/MTd")
++set(CMAKE_C_FLAGS_RELEASE "/MT")
++endif()
++
++if(NOT ATMOSIC_ZSG)
++  message(STATUS "ATMOSIC_ZSG is OFF")
++  set(Boost_USE_STATIC_LIBS OFF)
++  set(Boost_USE_MULTITHREADED ON)
++  set(Boost_USE_STATIC_RUNTIME OFF)
++  find_package(Boost 1.85.0 COMPONENTS program_options REQUIRED)
++  set(Boost_LIBRARIES "${Boost_INCLUDE_DIRS}/stage/lib")
++  link_directories(${Boost_LIBRARIES})
++else()
++  message(STATUS "ATMOSIC_ZSG is ON")
++  add_definitions(-DATMOSIC_ZSG)
++  include(FetchContent)
++  FetchContent_Declare(
++    yaml-cpp
++    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
++    GIT_TAG master
++  )
++  FetchContent_GetProperties(yaml-cpp)
++  if(NOT yaml-cpp_POPULATED)
++    message(STATUS "Fetching yaml-cpp...")
++    FetchContent_Populate(yaml-cpp)
++    add_subdirectory(${yaml-cpp_SOURCE_DIR} ${yaml-cpp_BINARY_DIR})
++  endif()
++endif()
+ 
+ set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
+ include(MunkeiVersionFromGit)
+diff --git a/Readme.md b/Readme.md
+index a01c989..f4c1610 100644
+--- a/Readme.md
++++ b/Readme.md
+@@ -26,6 +26,7 @@ For more information on the Zephyr settings subsystem see: https://docs.zephyrpr
+ ## How to build
+ To build zsg you need
+ - `libboost programm options` with version >= 1.67.
++- `yaml-cpp` with version >= 0.8.0 (For Atmosic special application)
+ - `CMake` with version >= 3.6
+ - Compiler with C++17 support
+ - Ninja or Make as buildtool
+@@ -46,3 +47,37 @@ after building.
+ 
+ # License
+ This Software is licensed under [BSD-2-Clause Plus Patent License](https://spdx.org/licenses/BSD-2-Clause-Patent)
++
++=============== For Atmosic special application ===============
++
++Previously, configuring through Boost was difficult to maintain with large amounts of data, so the data source has been standardized to the YAML file format.
++Set 'ATMOSIC_ZSG' in CMakeLists.txt to ON to enable this feature.
++
++# Execution example
++1. To generate binary string data to the settings storage area(Data read from YAML file):
++```
++Usage: zsg.exe write <yaml_file> <partition_sector_size > <partition_address> <partition_size> <output_file>
++```
++
++- Windows example:
++$ cd build
++§ src\\zsg.exe write ..\\factory.yml 1024 0x0 2048 ..\\nvs.bin
++
++- Linux example:
++$ cd build
++§ src/zsg write ../factory.yml 1024 0x0 2048 ../nvs.bin
++
++2. Read NVS information from a bin file and save it to a YAML file(Data read from NVS file.
++```
++Usage: zsg.exe read <yaml_file> <subtree_name> <partition_sector_size > <partition_address> <partition_size> <output_file>
++```
++- Windows example:
++$ cd build
++§ src\\zsg.exe read ..\\nvs.bin FACTORY 1024 0x0 2048 ..\\test.yml
++
++- Linux example:
++$ cd build
++§ src/zsg read ../nvs.bin 1024 0x0 2048 ../test.yml
++
++# Yaml file format
++Please refer to the 'sample.yml' in the directory
+\ No newline at end of file
+diff --git a/run_zsg.bat b/run_zsg.bat
+new file mode 100644
+index 0000000..205e218
+--- /dev/null
++++ b/run_zsg.bat
+@@ -0,0 +1,44 @@
++@echo off
++setlocal
++
++set CURRENT_DIR=%CD%
++set ACTION=%1
++set PART_SECTOR_SIZE=%2
++set PART_ADDR=%3
++set PART_SIZE=%4
++set NVS_BIN_FILE=%5
++
++if /i "%ACTION%"=="write" (
++    set FACTORY_YAML_PATH=%6
++    set SETTINGS_YAML_PATH=%7
++)
++
++set EXE_PATH="%CURRENT_DIR%\build_windows\src\zsg.exe"
++set FACTORY_BIN_FILE="%CURRENT_DIR%\factory.bin"
++set SETTINGS_BIN_FILE="%CURRENT_DIR%\settings.bin"
++set FACTORY_YAML_FILE="%CURRENT_DIR%\decode_factory.yml"
++set SETTINGS_YAML_FILE="%CURRENT_DIR%\decode_settings.yml"
++
++if /i "%ACTION%"=="read" (
++    :: Read factory NVS information from a bin file and save it to a YAML file.
++    %EXE_PATH% %ACTION% %NVS_BIN_FILE% "FACTORY" %PART_SECTOR_SIZE% %PART_ADDR% %PART_SIZE% %FACTORY_YAML_FILE%
++
++    :: Read settings NVS information from a bin file and save it to a YAML file.
++    %EXE_PATH% %ACTION% %NVS_BIN_FILE% "SETTINGS" %PART_SECTOR_SIZE% %PART_ADDR% %PART_SIZE% %SETTINGS_YAML_FILE%
++) else (
++    :: Generate factory bin file
++    %EXE_PATH% %ACTION% %FACTORY_YAML_PATH% %PART_SECTOR_SIZE% %PART_ADDR% %PART_SIZE% %FACTORY_BIN_FILE%
++
++    :: Generate settings bin file
++    %EXE_PATH% %ACTION% %SETTINGS_YAML_PATH% %PART_SECTOR_SIZE% %PART_ADDR% %PART_SIZE% %SETTINGS_BIN_FILE%
++
++    :: Combine bin file
++    copy /b %FACTORY_BIN_FILE% + %SETTINGS_BIN_FILE% %NVS_BIN_FILE%
++
++    :: Delete template file
++    del %FACTORY_BIN_FILE%
++    del %SETTINGS_BIN_FILE%
++
++    echo Combined .bin file created: %NVS_BIN_FILE%
++)
++endlocal
+\ No newline at end of file
+diff --git a/sample.yml b/sample.yml
+new file mode 100644
+index 0000000..e045f96
+--- /dev/null
++++ b/sample.yml
+@@ -0,0 +1,4 @@
++data:
++  data_1:
++    tag_name: FACTORY/Test
++    tag_value: 0x123456789ABC
+\ No newline at end of file
+diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
+index bad7beb..8b27c8c 100644
+--- a/src/CMakeLists.txt
++++ b/src/CMakeLists.txt
+@@ -1,3 +1,4 @@
++# SPDX-FileCopyrightText: 2024 Atmosic
+ # SPDX-FileCopyrightText: 2023 Albert Krenz <albert.krenz@mailbox.org>
+ # SPDX-License-Identifier: BSD-2-Clause-Patent
+ 
+@@ -8,9 +9,16 @@ add_subdirectory(crc)
+ add_subdirectory(nvs)
+ 
+ option(SETTINGS_BACKEND "Choose a settings backend. Available are `file` and `nvs`")
++
++if(ATMOSIC_ZSG)
++add_subdirectory(atmosic)
++add_executable(${PROJECT_NAME} main.cpp)
++target_link_libraries(${PROJECT_NAME} PRIVATE atmosic)
++else()
+ add_executable(${PROJECT_NAME} main.cpp settingswriter.cpp)
+ target_link_libraries(${PROJECT_NAME} PRIVATE settings)
+-target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
+-target_include_directories(${PROJECT_NAME} PRIVATE ${Boost_INCLUDE_DIRS}) 
++target_include_directories(${PROJECT_NAME} PRIVATE ${Boost_INCLUDE_DIRS})
+ target_link_libraries(${PROJECT_NAME} PRIVATE ${Boost_LIBRARIES})
+-target_compile_definitions(${PROJECT_NAME} PRIVATE VERSION_MAJOR=${VERSION_MAJOR} VERSION_MINOR=${VERSION_MINOR} VERSION_PATCH=${VERSION_PATCH} VERSION_STR="${GIT_DESCRIBE}" DESCRIPTION="${CMAKE_PROJECT_DESCRIPTION}")
+\ No newline at end of file
++target_compile_definitions(${PROJECT_NAME} PRIVATE VERSION_MAJOR=${VERSION_MAJOR} VERSION_MINOR=${VERSION_MINOR} VERSION_PATCH=${VERSION_PATCH} DESCRIPTION="${CMAKE_PROJECT_DESCRIPTION}")
++endif()
++target_compile_features(${PROJECT_NAME} PRIVATE cxx_std_17)
+\ No newline at end of file
+diff --git a/src/atmosic/CMakeLists.txt b/src/atmosic/CMakeLists.txt
+new file mode 100644
+index 0000000..4310d80
+--- /dev/null
++++ b/src/atmosic/CMakeLists.txt
+@@ -0,0 +1,13 @@
++# SPDX-FileCopyrightText: 2024 Atmosic
++# SPDX-License-Identifier: Apache-2.0
++
++set(SOURCES
++  atm_settingsreader.cpp
++  atm_settingswriter.cpp
++  atm_tool.cpp
++  atm_util.cpp
++)
++
++add_library(atmosic STATIC ${SOURCES})
++target_include_directories(atmosic PUBLIC include)
++target_link_libraries(atmosic PUBLIC nvs settings yaml-cpp)
+diff --git a/src/atmosic/atm_settingsreader.cpp b/src/atmosic/atm_settingsreader.cpp
+new file mode 100644
+index 0000000..ba5c043
+--- /dev/null
++++ b/src/atmosic/atm_settingsreader.cpp
+@@ -0,0 +1,59 @@
++/*
++ * SPDX-FileCopyrightText: 2024 Atmosic
++ * SPDX-License-Identifier: Apache-2.0
++*/
++
++#include <cstring>
++#include "atm_settingsreader.h"
++
++static std::string sub_tree_name;
++
++std::string combine_to_string(char const *key, size_t key_size, uint8_t *value, size_t value_size)
++{
++    std::stringstream data;
++
++    // Append key to the stringstream
++    data << sub_tree_name << "/";
++    for (size_t i = 0; i < key_size; i++)
++    {
++        data << key[i];
++    }
++
++    // Append value to the stringstream in hex format
++    data << ":";
++    for (size_t i = 0; i < value_size; ++i)
++    {
++        data << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(value[value_size - 1 - i]);
++    }
++
++    return data.str();
++}
++
++static int subtree_callback(char const *key, size_t len,
++	settings_read_cb read_cb, void *cb_arg, void *param)
++{
++    uint8_t buffer[SETTINGS_MAX_VAL_LEN];
++    ssize_t num_read_bytes = MIN(len, SETTINGS_MAX_VAL_LEN);
++    struct settings_nvs_read_fn_arg *rd_fn_arg;
++
++    rd_fn_arg = (struct settings_nvs_read_fn_arg *)cb_arg;
++    num_read_bytes = nvs_read(rd_fn_arg->fs, rd_fn_arg->id, buffer,
++           num_read_bytes);
++
++    std::string data = combine_to_string(key, strlen(key), buffer,
++	    num_read_bytes);
++    std::vector<std::string>* settings = reinterpret_cast<std::vector<std::string> *>(param);
++    settings->push_back(data);
++    std::cout << "Read subtree data:" << data << std::endl;
++
++    return 0;
++}
++
++int SettingsReader::read(std::string const name, std::vector<std::string> &settings)
++{
++    settings.clear();
++    sub_tree_name = name;
++    int rc = settings_load_subtree_direct(name.c_str(),
++	   subtree_callback, &settings);
++    return rc;
++}
+\ No newline at end of file
+diff --git a/src/atmosic/atm_settingswriter.cpp b/src/atmosic/atm_settingswriter.cpp
+new file mode 100644
+index 0000000..240d7bc
+--- /dev/null
++++ b/src/atmosic/atm_settingswriter.cpp
+@@ -0,0 +1,121 @@
++/*
++ * SPDX-FileCopyrightText: 2024 Atmosic
++ * SPDX-License-Identifier: Apache-2.0
++*/
++
++#include "atm_settingswriter.h"
++
++const size_t MAX_BYTE_ARRAY_SIZE = 256;
++
++struct HexValue {
++    uint8_t value[MAX_BYTE_ARRAY_SIZE];
++    size_t len;
++};
++
++int str2bytearray_little_endian(std::string const &str, HexValue &hex_value)
++{
++    char *endptr;
++    size_t count = 0;
++    size_t len = str.length();
++    char const *pos = str.c_str() + len;
++
++    while (len > 0)
++    {
++        char buf[5] = { '0', 'x', '0', '0', 0 };
++        if (len)
++        {
++            pos -= 1 * sizeof(char);
++            buf[3] = *pos;
++            len--;
++        }
++        if (len)
++        {
++            pos -= 1 * sizeof(char);
++            buf[2] = *pos;
++            len--;
++        }
++	hex_value.value[count] = static_cast<unsigned char>(strtol(buf,
++		&endptr, 0));
++
++        if (endptr[0] != '\0')
++        {
++            std::cout << "Malformed Value" << std::endl;
++            hex_value.len = 0;
++            return -EINVAL;
++        }
++        count++;
++    }
++    hex_value.len = count;
++    return 0;
++}
++
++std::unique_ptr<SettingsWriter> SettingsWriterFactory::create(
++	std::string const s)
++{
++    std::string key{ s.substr(0, s.find(':')) };
++    std::string value{s.substr(s.find(':')+1)};
++    if (key.empty() || value.empty()) {
++        return std::unique_ptr<SettingsWriter>{nullptr};
++    }
++    if (strncmp(value.data(), "0x", 2)) {
++        return std::move(std::make_unique<StringSettingsWriter>(s));
++    } else {
++        return std::move(std::make_unique<U32SettingsWriter>(s));
++    }
++}
++
++std::string_view SettingsWriter::get_key_from_string(std::string_view str) const
++{
++    std::string_view key{str.substr(0, str.find(':'))};
++    return key;
++}
++
++std::string_view SettingsWriter::get_value_from_string(
++	std::string_view str) const
++{
++    std::string_view substr{str.substr(str.find(':') + 1)};
++    std::string_view value{substr.substr(0, substr.find(':'))};
++    return value;
++}
++
++StringSettingsWriter::StringSettingsWriter(
++	std::string const data) : m_data(data)
++{
++
++}
++
++StringSettingsWriter::~StringSettingsWriter(){
++
++}
++
++int StringSettingsWriter::write() const{
++    std::string key{get_key_from_string(m_data)};
++    std::string value{ get_value_from_string(m_data)};
++    if (!strncmp(value.data(), "0x", 2)) return -1;
++    std::cout << "Store Setting \"" << key << "\" with value \""
++	      << value << "\"" << std::endl;
++    settings_save_one(key.c_str(), value.data(), value.size());
++    return 0;
++}
++
++U32SettingsWriter::U32SettingsWriter(std::string const s) : m_data(s){
++
++}
++
++U32SettingsWriter::~U32SettingsWriter(){
++
++}
++
++int U32SettingsWriter::write() const{
++
++    std::string key{ get_key_from_string(m_data) };
++    std::string value{ get_value_from_string(m_data) };
++    HexValue hex_value;
++    char const *val = value.data();
++    if (strncmp(val, "0x", 2)) return -1;
++    if (str2bytearray_little_endian(val + 2, hex_value)) return -1;
++    std::cout << "Store Setting \"" << key << "\" with value \""
++	      << hex_value.value << "\"" << std::endl;
++    settings_save_one(key.c_str(), hex_value.value, hex_value.len);
++    return 0;
++}
+diff --git a/src/atmosic/atm_tool.cpp b/src/atmosic/atm_tool.cpp
+new file mode 100644
+index 0000000..6833cd3
+--- /dev/null
++++ b/src/atmosic/atm_tool.cpp
+@@ -0,0 +1,179 @@
++/*
++ * SPDX-FileCopyrightText: 2024 Atmosic
++ * SPDX-License-Identifier: Apache-2.0
++*/
++
++#include "atm_tool.h"
++
++std::vector<std::string> settings;
++
++int generate_yaml(std::string const &ymlFilePath)
++{
++    YAML::Node root;
++    YAML::Node data = root["data"];
++    int data_num = 1;
++
++    std::reverse(settings.begin(), settings.end());
++    std::cout << "********* Save YAML data start *********" << std::endl;
++    for (auto const &setting : settings)
++    {
++        size_t pos = setting.find(':');
++        if (pos != std::string::npos)
++        {
++            YAML::Node data_node;
++            std::string key = setting.substr(0, pos);
++            std::string value = setting.substr(pos + 1);
++            key = key.c_str();
++            value = value.c_str();
++            data_node["tag_name"] = key;
++            data_node["tag_value"] = "0x" + AtmUtil::toUpperCaseHexString(value);
++            std::string name = "data_" + std::to_string(data_num);
++            data[name] = data_node;
++            std::cout << "Tag Name: " << data_node["tag_name"] << ", Tag Value: "
++                  << data_node["tag_value"] << std::endl;
++            data_num += 1;
++        }
++    }
++    std::cout << "********* Save YAML data end *********" << std::endl;
++    std::ofstream fout(ymlFilePath);
++    fout << root;
++    return 0;
++}
++
++int parser_yaml(std::string const &ymlFilePath)
++{
++    YAML::Node config = YAML::LoadFile(ymlFilePath);
++    int data_num = 0;
++
++    if (config["data"])
++    {
++        YAML::Node const &data = config["data"];
++        std::cout << "********* Load YAML data start *********" << std::endl;
++        for (auto it = data.begin(); it != data.end(); ++it)
++        {
++            YAML::Node const &entry = it->second;
++            if (entry["tag_name"] && entry["tag_value"]) {
++                std::string tagName = entry["tag_name"].as<std::string>();
++                std::string tagValue = entry["tag_value"].as<std::string>();
++                std::cout << "Tag Name: " << tagName << ", Tag Value: "
++                  << tagValue << std::endl;
++                settings.push_back(tagName + ":" + tagValue);
++                data_num += 1;
++            }
++        }
++        std::cout << "********* Load YAML data end *********" << std::endl;
++    }
++    else
++    {
++        std::cout << "No 'data' section found in the YAML file." << std::endl;
++    }
++    return data_num;
++}
++
++int bin_to_yaml(int argc, char *argv[])
++{
++    if (argc != 8)
++    {
++        std::cout << "Usage: " << argv[0] << " " << argv[1]
++                  << " <bin_file> <subtree_name> <partition_sector_size>"
++                  << " <partition_address> <partition_size> <yaml_file>"
++                  << std::endl;
++        return 1;
++    }
++
++    int rc = 0;
++    std::string bin_file = argv[2];
++    std::string sub_tree_name = argv[3];
++    uint16_t part_sector_size = AtmUtil::str2uint16(argv[4]);
++    off_t part_addr = AtmUtil::str2size(argv[5]);
++    uint16_t part_size = AtmUtil::str2uint16(argv[6]);
++    std::string yaml_file = argv[7];
++
++    if (!fs::exists(bin_file))
++    {
++        std::cout << "Can't find " << bin_file << " bin file" << std::endl;
++        return 1;
++    }
++
++    settings.clear();
++    std::cout << "Generate [" << yaml_file << "]" << std::endl;
++    rc = settings_subsys_init(part_sector_size, part_size, bin_file.c_str(),
++                              true);
++    if (rc)
++    {
++	    std::cout << "Settings subsys init failed" << std::endl;
++	    return 1;
++    }
++    rc = SettingsReader::read(sub_tree_name, settings);
++    if (!settings.empty())
++    {
++	generate_yaml(yaml_file);
++    }
++    else
++    {
++        std::cout << "nvs data is empty." << std::endl;
++        return 1;
++    }
++    return 0;
++}
++
++int yaml_to_bin(int argc,char *argv[])
++{
++    if (argc != 7)
++    {
++        std::cout << "Usage: " << argv[0] << " " << argv[1]
++                  << " <yaml_file> <partition_sector_size>"
++                  << " <partition_address> <partition_size> <bin_file>"
++                  << std::endl;
++        return 1;
++    }
++    std::string yaml_file = argv[2];
++    uint16_t part_sector_size = AtmUtil::str2uint16(argv[3]);
++    off_t part_addr = AtmUtil::str2size(argv[4]);
++    uint16_t part_size = AtmUtil::str2uint16(argv[5]);
++    std::string bin_file = argv[6];
++
++    if (!fs::exists(yaml_file))
++    {
++        std::cout << "Can't find " << yaml_file << " yaml file" << std::endl;
++        return 1;
++    }
++
++    settings.clear();
++    std::cout << "Load [" << yaml_file << "]" << std::endl;
++    int data_num = parser_yaml(yaml_file);
++    if (!settings.empty())
++    {
++        auto settings_writer = [](std::string str) {
++        std::unique_ptr<SettingsWriter> writer = \
++            SettingsWriterFactory::create(str);
++            writer->write();
++        };
++        settings_subsys_init(part_sector_size, part_size, bin_file.c_str(), false);
++        std::for_each(std::begin(settings), std::end(settings),
++                      settings_writer);
++    }
++    else
++    {
++        std::cout << "yaml data is empty." << std::endl;
++        return 1;
++    }
++    return 0;
++}
++
++int AtmTool::run_tool(int argc, char *argv[])
++{
++    if (strcmp(argv[1], "write") == 0)
++    {
++        return yaml_to_bin(argc, argv);
++    }
++    else if (strcmp(argv[1], "read") == 0)
++    {
++        return bin_to_yaml(argc, argv);
++    }
++    else
++    {
++        std::cout << "Unknow action [" << argv[1] << "]";
++        return 1;
++    }
++}
+\ No newline at end of file
+diff --git a/src/atmosic/atm_util.cpp b/src/atmosic/atm_util.cpp
+new file mode 100644
+index 0000000..5aee15d
+--- /dev/null
++++ b/src/atmosic/atm_util.cpp
+@@ -0,0 +1,32 @@
++/*
++ * SPDX-FileCopyrightText: 2024 Atmosic
++ * SPDX-License-Identifier: Apache-2.0
++*/
++
++#include "atm_util.h"
++
++std::string AtmUtil::toUpperCaseHexString(std::string &hexString)
++{
++    std::string result = hexString;
++    std::transform(result.begin(), result.end(), result.begin(), ::toupper);
++    return result;
++}
++
++size_t AtmUtil::str2size(std::string str)
++{
++    std::stringstream stream;
++    size_t output;
++
++    if (str.find("0x") == 0 || str.find("0X") == 0) {
++        stream << std::hex;
++    }
++
++    stream << str;
++    stream >> output;
++    return output;
++}
++
++uint16_t AtmUtil::str2uint16(std::string const &str) {
++    unsigned long value = std::stoul(str);
++    return static_cast<uint16_t>(value);
++}
+\ No newline at end of file
+diff --git a/src/atmosic/include/atm_settingsreader.h b/src/atmosic/include/atm_settingsreader.h
+new file mode 100644
+index 0000000..a321735
+--- /dev/null
++++ b/src/atmosic/include/atm_settingsreader.h
+@@ -0,0 +1,29 @@
++/*
++ * SPDX-FileCopyrightText: 2024 Atmosic
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <fstream>
++#include <flash.h>
++#include <vector>
++#include <iostream>
++#include <iomanip>
++#include <nvs.h>
++#include <sstream>
++#include <settings.h>
++
++struct settings_nvs_read_fn_arg
++{
++    struct nvs_fs *fs;
++    uint16_t id;
++};
++
++class SettingsReader
++{
++private:
++    static std::vector<std::string> settings;
++    static std::string combine_to_string(char const *key, size_t key_size, uint8_t *value, size_t value_size);
++
++public:
++    static int read(std::string const name, std::vector<std::string> &settings);
++};
+\ No newline at end of file
+diff --git a/src/atmosic/include/atm_settingswriter.h b/src/atmosic/include/atm_settingswriter.h
+new file mode 100644
+index 0000000..e10d0c7
+--- /dev/null
++++ b/src/atmosic/include/atm_settingswriter.h
+@@ -0,0 +1,49 @@
++/*
++ * SPDX-FileCopyrightText: 2024 Atmosic
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <string_view>
++#include <string>
++#include <memory>
++#include <vector>
++#include <settings.h>
++#include <iostream>
++#include <cstring>
++
++class SettingsWriter
++{
++public:
++    virtual int write() const = 0;
++
++protected:
++    std::string_view get_key_from_string(std::string_view str) const;
++    std::string_view get_value_from_string(std::string_view str) const;
++};
++
++class SettingsWriterFactory{
++public:
++  static std::unique_ptr<SettingsWriter> create(std::string const s);
++};
++
++class StringSettingsWriter : public SettingsWriter
++{
++public:
++    StringSettingsWriter(std::string const data);
++    ~StringSettingsWriter();
++    int write() const override;
++
++private:
++    std::string const m_data;
++};
++
++class U32SettingsWriter : public SettingsWriter
++{
++public:
++    U32SettingsWriter(std::string const data);
++    ~U32SettingsWriter();
++    int write() const override;
++
++private:
++    std::string const m_data;
++};
+\ No newline at end of file
+diff --git a/src/atmosic/include/atm_tool.h b/src/atmosic/include/atm_tool.h
+new file mode 100644
+index 0000000..8c24b3e
+--- /dev/null
++++ b/src/atmosic/include/atm_tool.h
+@@ -0,0 +1,22 @@
++/*
++ * SPDX-FileCopyrightText: 2024 Atmosic
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <string>
++#include <filesystem>
++#include <vector>
++#include <cstring>
++
++#include "yaml-cpp/yaml.h"
++#include "atm_settingswriter.h"
++#include "atm_settingsreader.h"
++#include "atm_util.h"
++
++namespace fs = std::filesystem;
++
++class AtmTool
++{
++public:
++    static int run_tool(int argc, char *argv[]);
++};
+\ No newline at end of file
+diff --git a/src/atmosic/include/atm_util.h b/src/atmosic/include/atm_util.h
+new file mode 100644
+index 0000000..053bfcd
+--- /dev/null
++++ b/src/atmosic/include/atm_util.h
+@@ -0,0 +1,16 @@
++/*
++ * SPDX-FileCopyrightText: 2024 Atmosic
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <string>
++#include <algorithm>
++#include <sstream>
++
++class AtmUtil
++{
++public:
++    static std::string toUpperCaseHexString(std::string &hexString);
++    static size_t str2size(std::string str);
++    static uint16_t str2uint16(std::string const &str);
++};
+\ No newline at end of file
+diff --git a/src/main.cpp b/src/main.cpp
+index 5b115cf..325a930 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -1,22 +1,30 @@
+ /*
+  * SPDX-FileCopyrightText: 2023 Albert Krenz <albert.krenz@mailbox.org>
++ * SPDX-FileCopyrightText: 2024 Atmosic
+  * SPDX-License-Identifier: BSD-2-Clause-Patent
+ */
+ 
+-#include "settingswriter.h"
+ #include <string_view>
+ #include <memory.h>
+ #include <settings.h>
+-
+-#include <boost/program_options.hpp>
+ #include <vector>
+ #include <string>
+ #include <iostream>
+ #include <sstream>
+ 
++#ifdef ATMOSIC_ZSG
++#include <atm_tool.h>
++#else
++#include <boost/program_options.hpp>
++#include "settingswriter.h"
+ namespace po = boost::program_options;
++#define VERSION_STR "1.0.0.0"
++#endif
+ 
+-int main(int argc, char * argv[]){
++int main(int argc, char* argv[]){
++#ifdef ATMOSIC_ZSG
++  return AtmTool::run_tool(argc, argv);
++#else
+   std::stringstream ss;
+   ss << DESCRIPTION << std::endl << std::endl<< "Allowed options";
+   po::options_description desc(ss.str());
+@@ -60,4 +68,5 @@ int main(int argc, char * argv[]){
+   }
+ 
+   return 0;
++#endif
+ }
+\ No newline at end of file
+diff --git a/src/nvs/flash.cpp b/src/nvs/flash.cpp
+index 2a7ce3c..90bca38 100644
+--- a/src/nvs/flash.cpp
++++ b/src/nvs/flash.cpp
+@@ -2,6 +2,7 @@
+ 
+ #include <memory.h>
+ /*
++ * SPDX-FileCopyrightText: 2024 Atmosic
+  * SPDX-FileCopyrightText: 2023 Albert Krenz <albert.krenz@mailbox.org>
+  * SPDX-License-Identifier: BSD-2-Clause-Patent
+ */
+@@ -15,30 +16,42 @@
+ #include <exception>
+ #include <string>
+ 
+-struct device {
++struct device
++{
+ 
+-  device(const std::string path){
+-    fs = std::fstream(path,  std::ios::out | std::ios::in | std::ios::trunc | std::ios::binary);
+-    if(!fs.is_open()) throw std::runtime_error("Could not open file `binary_file.bin");
++  device(const std::string path, bool read_only) {
++    if (read_only) {
++      fs = std::fstream(path, std::ios::out | std::ios::in | std::ios::binary);
++    }
++    else {
++      fs = std::fstream(path, std::ios::out | std::ios::in | std::ios::trunc |
++		   std::ios::binary);
++    }
++    if (!fs.is_open()) throw std::runtime_error(
++	    "Could not open file `binary_file.bin");
+   }
+-
+-  ~device(){
+-    fs.close();
+-  }
+-
+-  uint32_t id;
+-  std::fstream fs;
++    ~device(){
++      fs.close();
++    }
++    uint32_t id;
++    std::fstream fs;
+ };
+ 
+-struct device* flash_create(uint16_t sector_size, uint16_t sector_count, const char* file_path){
+-  static device dev(file_path);
+-
++struct device* flash_create(uint16_t sector_size, uint16_t sector_count, const char* file_path)
++{
++  static device dev(file_path, false);
+   std::fill_n(std::ostream_iterator<char>(dev.fs), sector_size*sector_count, 0xFF);
+   dev.fs.flush();
+   dev.fs.seekp(0);
+   return &dev;
+ }
+ 
++struct device* flash_open(uint16_t sector_size, uint16_t sector_count, const char* file_path)
++{
++  static device dev(file_path, true);
++  return &dev;
++}
++
+ int flash_write(const struct device * dev, off_t offset, const uint8_t* data, size_t len){
+ 
+   // std::cout << "Write " << len << " bytes data at offset 0x" << std::hex << offset << std::endl;;
+diff --git a/src/nvs/flash.h b/src/nvs/flash.h
+index 918e0f2..4eb2473 100644
+--- a/src/nvs/flash.h
++++ b/src/nvs/flash.h
+@@ -1,5 +1,6 @@
+ /*
+  * SPDX-FileCopyrightText: 2023 Albert Krenz <albert.krenz@mailbox.org>
++ * SPDX-FileCopyrightText: 2024 Atmosic
+  * SPDX-License-Identifier: BSD-2-Clause-Patent
+ */
+ 
+@@ -16,6 +17,7 @@ extern "C" {
+ struct device;
+ 
+ struct device* flash_create(uint16_t sector_size, uint16_t sector_count, const char* file_path);
++struct device* flash_open(uint16_t sector_size, uint16_t sector_count, const char* file_path);
+ int flash_write(const struct device * dev, off_t offset, const uint8_t* data, size_t len);
+ int flash_read(const struct device * dev, off_t offset, void * data, size_t len);
+ int flash_erase(const struct device * dev, off_t offset, size_t size);
+diff --git a/src/nvs/nvs.c b/src/nvs/nvs.c
+index ec5cc33..4390052 100644
+--- a/src/nvs/nvs.c
++++ b/src/nvs/nvs.c
+@@ -1,5 +1,6 @@
+ /*  NVS: non volatile storage in flash
+  *
++ * Copyright (c) 2024 Atmosic
+  * Copyright (c) 2018 Laczen
+  *
+  * SPDX-License-Identifier: Apache-2.0
+@@ -610,9 +611,17 @@ gc_done:
+ }
+ 
+ int nvs_mount(struct nvs_fs *fs){
+-	static struct flash_parameters parameters = {.write_block_size = 4, .erase_value = 0xFF};
+-	fs->ready = true;
++	int rc = 0;
++	static struct flash_parameters parameters = {.write_block_size = 1, .erase_value = 0xFF};
+ 	fs->flash_parameters = &parameters;
++
++	rc = nvs_startup(fs);
++	if (rc) {
++		return rc;
++	}
++
++	fs->ready = true;
++
+ 	return 0;
+ }
+ 
+diff --git a/src/nvs/nvs.h b/src/nvs/nvs.h
+index ccf48a6..9ca7fb0 100644
+--- a/src/nvs/nvs.h
++++ b/src/nvs/nvs.h
+@@ -1,5 +1,6 @@
+ /*  NVS: non volatile storage in flash
+  *
++ * Copyright (c) 2024 Atmosic
+  * Copyright (c) 2018 Laczen
+  *
+  * SPDX-License-Identifier: Apache-2.0
+@@ -11,6 +12,10 @@
+ #include <stdbool.h>
+ #include <sys/types.h>
+ 
++#if defined(_MSC_VER)
++#include <BaseTsd.h>
++typedef SSIZE_T ssize_t;
++#endif
+ 
+ #ifdef __cplusplus
+ extern "C" {
+diff --git a/src/settings/include/settings.h b/src/settings/include/settings.h
+index a393944..3d57d8b 100644
+--- a/src/settings/include/settings.h
++++ b/src/settings/include/settings.h
+@@ -1,4 +1,5 @@
+ /*
++ * Copyright (c) 2024 Atmosic
+  * Copyright (c) 2018 Nordic Semiconductor ASA
+  * Copyright (c) 2015 Runtime Inc
+  *
+@@ -12,6 +13,11 @@
+ #include <stdint.h>
+ #include <slist.h>
+ 
++#if defined(_MSC_VER)
++#include <BaseTsd.h>
++typedef SSIZE_T ssize_t;
++#endif
++
+ #ifdef __cplusplus
+ extern "C" {
+ #endif
+@@ -35,6 +41,11 @@ extern "C" {
+ #define SETTINGS_NAME_SEPARATOR	'/'
+ #define SETTINGS_NAME_END '='
+ 
++#define CONFIG_SETTINGS_NVS 1
++#define CONFIG_SETTINGS_NVS_SECTOR_SIZE_MULT 1
++#define CONFIG_SETTINGS_NVS_SECTOR_COUNT 8
++#define CONFIG_SETTINGS_FCB_NUM_AREAS 20
++
+ /* place for settings additions:
+  * up to 7 separators, '=', '\0'
+  */
+@@ -215,7 +226,11 @@ struct settings_handler_static {
+  *
+  * @return 0 on success, non-zero on failure.
+  */
++#ifndef ATMOSIC_ZSG
+ int settings_subsys_init(uint16_t sector_size, uint16_t sector_count, const char* file_path);
++#else
++int settings_subsys_init(uint16_t block_size, uint16_t sector_size, const char* file_path, bool read_only);
++#endif
+ 
+ /**
+  * Register a handler for settings items stored in RAM.
+diff --git a/src/settings/include/settings/settings_nvs.h b/src/settings/include/settings/settings_nvs.h
+index e7ccbc2..d117bf8 100644
+--- a/src/settings/include/settings/settings_nvs.h
++++ b/src/settings/include/settings/settings_nvs.h
+@@ -1,4 +1,5 @@
+ /*
++ * Copyright (c) 2024 Atmosic
+  * Copyright (c) 2019 Laczen
+  * Copyright (c) 2019 Nordic Semiconductor ASA
+  *
+@@ -55,8 +56,12 @@ int settings_nvs_src(struct settings_nvs *cf);
+ int settings_nvs_dst(struct settings_nvs *cf);
+ 
+ /* Initialize a nvs backend. */
++#ifndef ATMOSIC_ZSG
+ int settings_backend_init(uint16_t sector_size, uint16_t sector_count, const char* file_path);
+-
++#else
++int settings_backend_init(uint16_t block_size, uint16_t sector_size,
++	const char* file_path, bool read_only);
++#endif
+ int settings_nvs_load(struct settings_store *cs,
+ 			     const struct settings_load_arg *arg);
+ 
+diff --git a/src/settings/settings.c b/src/settings/settings.c
+index 18d1c4f..184c863 100644
+--- a/src/settings/settings.c
++++ b/src/settings/settings.c
+@@ -1,4 +1,5 @@
+ /*
++ * Copyright (c) 2024 Atmosic
+  * Copyright (c) 2018 Nordic Semiconductor ASA
+  * Copyright (c) 2015 Runtime Inc
+  *
+@@ -152,21 +153,22 @@ int settings_call_set_handler(const char *name,
+ 	if (load_arg && load_arg->cb) {
+ 		rc = load_arg->cb(name_key, len, read_cb, read_cb_arg,
+ 				  load_arg->param);
+-	} else {
+-		struct settings_handler_static *ch;
++	}
++	
++	struct settings_handler_static *ch;
+ 
+-		ch = settings_parse_and_lookup(name, &name_key);
+-		if (!ch) {
+-			return 0;
+-		}
++	ch = settings_parse_and_lookup(name, &name_key);
++	if (!ch) {
++		return 0;
++	}
+ 
+-		rc = ch->h_set(name_key, len, read_cb, read_cb_arg);
++	rc = ch->h_set(name_key, len, read_cb, read_cb_arg);
+ 
+-		if (rc != 0) {
+-			/* Ignoring the error */
+-			rc = 0;
+-		}
++	if (rc != 0) {
++		/* Ignoring the error */
++		rc = 0;
+ 	}
++
+ 	return rc;
+ }
+ 
+diff --git a/src/settings/settings_init.c b/src/settings/settings_init.c
+index 350ce52..18eb77f 100644
+--- a/src/settings/settings_init.c
++++ b/src/settings/settings_init.c
+@@ -1,4 +1,5 @@
+ /*
++ * Copyright (c) 2024 Atmosic
+  * Copyright (c) 2018 Nordic Semiconductor ASA
+  * Copyright (c) 2015 Runtime Inc
+  *
+@@ -18,6 +19,7 @@ bool settings_subsys_initialized;
+ 
+ void settings_init(void);
+ 
++#ifndef ATMOSIC_ZSG
+ int settings_backend_init(uint16_t sector_size, uint16_t sector_count, const char* file_path);
+ 
+ int settings_subsys_init(uint16_t sector_size, uint16_t sector_count, const char*  file_path)
+@@ -39,3 +41,23 @@ int settings_subsys_init(uint16_t sector_size, uint16_t sector_count, const char
+ 
+ 	return err;
+ }
++#else
++int settings_backend_init(uint16_t block_size, uint16_t sector_size,
++	const char* file_path, bool read_only);
++
++int settings_subsys_init(uint16_t block_size, uint16_t sector_size,
++	const char* file_path, bool read_only)
++{
++    int err = 0;
++    if (!settings_subsys_initialized) {
++        settings_init();
++    }
++
++    err = settings_backend_init(block_size, sector_size, file_path, read_only);
++    if (!err) {
++        settings_subsys_initialized = true;
++    }
++
++    return err;
++}
++#endif
+\ No newline at end of file
+diff --git a/src/settings/settings_nvs.c b/src/settings/settings_nvs.c
+index 660dd4a..e80b04c 100644
+--- a/src/settings/settings_nvs.c
++++ b/src/settings/settings_nvs.c
+@@ -1,4 +1,5 @@
+ /*
++ * Copyright (c) 2024 Atmosic
+  * Copyright (c) 2019 Laczen
+  * Copyright (c) 2019 Nordic Semiconductor ASA
+  *
+@@ -313,6 +314,11 @@ int settings_nvs_backend_init(struct settings_nvs *cf)
+ 		return -ENODEV;
+ 	}
+ 
++	rc = nvs_mount(&cf->cf_nvs);
++	if (rc) {
++		return rc;
++	}
++
+ 	rc = nvs_read(&cf->cf_nvs, NVS_NAMECNT_ID, &last_name_id,
+ 		      sizeof(last_name_id));
+ 	if (rc < 0) {
+@@ -324,6 +330,7 @@ int settings_nvs_backend_init(struct settings_nvs *cf)
+ 	return 0;
+ }
+ 
++#ifndef ATMOSIC_ZSG
+ int settings_backend_init(uint16_t sector_size, uint16_t sector_count, const char* file_path)
+ {
+ 	static struct settings_nvs default_settings_nvs;
+@@ -354,6 +361,52 @@ int settings_backend_init(uint16_t sector_size, uint16_t sector_count, const cha
+ 
+ 	return rc;
+ }
++#else
++int settings_backend_init(uint16_t block_size, uint16_t sector_size,
++    const char* file_path, bool read_only)
++{
++	static struct settings_nvs default_settings_nvs;
++	size_t nvs_sector_size, nvs_size = 0;
++	uint16_t cnt = 0;
++	uint32_t sector_cnt = 1;
++	int rc;
++
++	nvs_sector_size = CONFIG_SETTINGS_NVS_SECTOR_SIZE_MULT * block_size;
++	if (nvs_sector_size > UINT16_MAX) {
++		return -EDOM;
++	}
++	while (cnt < CONFIG_SETTINGS_NVS_SECTOR_COUNT) {
++		nvs_size += nvs_sector_size;
++		if (nvs_size > sector_size) {
++			break;
++		}
++		cnt++;
++	}
++	/* define the nvs file system using the page_info */
++	default_settings_nvs.cf_nvs.sector_size = nvs_sector_size;
++	default_settings_nvs.cf_nvs.sector_count = cnt;
++	default_settings_nvs.cf_nvs.offset = 0;
++	if (read_only) {
++		default_settings_nvs.flash_dev = flash_open(sector_size,
++			sector_cnt, file_path);
++	}
++	else {
++		default_settings_nvs.flash_dev = flash_create(sector_size,
++			sector_cnt, file_path);
++	}
++	rc = settings_nvs_backend_init(&default_settings_nvs);
++	if (rc) {
++		return rc;
++	}
++
++	rc = settings_nvs_src(&default_settings_nvs);
++	if (rc) {
++		return rc;
++	}
++	rc = settings_nvs_dst(&default_settings_nvs);
++	return rc;
++}
++#endif
+ 
+ static void *settings_nvs_storage_get(struct settings_store *cs)
+ {
+diff --git a/src/settings/settings_priv.h b/src/settings/settings_priv.h
+deleted file mode 100644
+index a4e5256..0000000
+--- a/src/settings/settings_priv.h
++++ /dev/null
+@@ -1,132 +0,0 @@
+-/*
+- * Copyright (c) 2018 Nordic Semiconductor ASA
+- * Copyright (c) 2015 Runtime Inc
+- *
+- * SPDX-License-Identifier: Apache-2.0
+- */
+-
+-#ifndef __SETTINGS_PRIV_H_
+-#define __SETTINGS_PRIV_H_
+-
+-#include <sys/types.h>
+-#include <errno.h>
+-#include <settings.h>
+-#include <slist.h>
+-
+-#ifdef __cplusplus
+-extern "C" {
+-#endif
+-
+-int settings_cli_register(void);
+-int settings_nmgr_register(void);
+-
+-struct mgmt_cbuf;
+-int settings_cbor_line(struct mgmt_cbuf *cb, char *name, int nlen, char *value,
+-		       int vlen);
+-
+-void settings_line_io_init(int (*read_cb)(void *ctx, off_t off, char *buf,
+-					  size_t *len),
+-			   int (*write_cb)(void *ctx, off_t off,
+-					   char const *buf, size_t len),
+-			   size_t (*get_len_cb)(void *ctx),
+-			   uint8_t io_rwbs);
+-
+-int settings_line_write(const char *name, const char *value, size_t val_len,
+-			off_t w_loc, void *cb_arg);
+-
+-/* Get len of record without alignment to write-block-size */
+-int settings_line_len_calc(const char *name, size_t val_len);
+-
+-int settings_line_dup_check_cb(const char *name, void *val_read_cb_ctx,
+-				off_t off, void *cb_arg);
+-
+-int settings_line_load_cb(const char *name, void *val_read_cb_ctx,
+-			   off_t off, void *cb_arg);
+-
+-typedef int (*line_load_cb)(const char *name, void *val_read_cb_ctx,
+-			     off_t off, void *cb_arg);
+-
+-struct settings_line_read_value_cb_ctx {
+-	void *read_cb_ctx;
+-	off_t off;
+-};
+-
+-struct settings_line_dup_check_arg {
+-	const char *name;
+-	const char *val;
+-	size_t val_len;
+-	int is_dup;
+-};
+-
+-#ifdef CONFIG_SETTINGS_ENCODE_LEN
+-/* in storage line contex */
+-struct line_entry_ctx {
+-	void *stor_ctx;
+-	off_t seek; /* offset of id-value pair within the file */
+-	size_t len; /* len of line without len value */
+-};
+-
+-int settings_next_line_ctx(struct line_entry_ctx *entry_ctx);
+-#endif
+-
+-/**
+- * Read RAW settings line entry data from the storage.
+- *
+- * @param seek offset form the line beginning.
+- * @param[out] out buffer for name
+- * @param[in] len_req size of <p>out</p> buffer
+- * @param[out] len_read length of read name
+- * @param[in] cb_arg settings line storage context expected by the
+- * <p>read_cb</p> implementation
+- *
+- * @retval 0 on success,
+- * -ERCODE on storage errors
+- */
+-int settings_line_raw_read(off_t seek, char *out, size_t len_req,
+-			   size_t *len_read, void *cb_arg);
+-
+-/*
+- * @param val_off offset of the value-string.
+- * @param off from val_off (so within the value-string)
+- */
+-int settings_line_val_read(off_t val_off, off_t off, char *out, size_t len_req,
+-			   size_t *len_read, void *cb_arg);
+-
+-/**
+- * Read the settings line entry name from the storage.
+- *
+- * @param[out] out buffer for name
+- * @param[in] len_req size of <p>out</p> buffer
+- * @param[out] len_read length of read name
+- * @param[in] cb_arg settings line storage context expected by the
+- * <p>read_cb</p> implementation
+- *
+- * @retval 0 on read proper name,
+- * 1 on when read improper name,
+- * -ERCODE on storage errors
+- */
+-int settings_line_name_read(char *out, size_t len_req, size_t *len_read,
+-			    void *cb_arg);
+-
+-size_t settings_line_val_get_len(off_t val_off, void *read_cb_ctx);
+-
+-int settings_line_entry_copy(void *dst_ctx, off_t dst_off, void *src_ctx,
+-			off_t src_off, size_t len);
+-
+-void settings_line_io_init(int (*read_cb)(void *ctx, off_t off, char *buf,
+-					  size_t *len),
+-			  int (*write_cb)(void *ctx, off_t off, char const *buf,
+-					  size_t len),
+-			  size_t (*get_len_cb)(void *ctx),
+-			  uint8_t io_rwbs);
+-
+-
+-extern sys_slist_t settings_load_srcs;
+-extern sys_slist_t settings_handlers;
+-extern struct settings_store *settings_save_dst;
+-
+-#ifdef __cplusplus
+-}
+-#endif
+-
+-#endif /* __SETTINGS_PRIV_H_ */
+diff --git a/src/settings/settings_store.c b/src/settings/settings_store.c
+index 96b8904..8bc81d2 100644
+--- a/src/settings/settings_store.c
++++ b/src/settings/settings_store.c
+@@ -1,4 +1,5 @@
+ /*
++ * Copyright (c) 2024 Atmosic
+  * Copyright (c) 2018 Nordic Semiconductor ASA
+  * Copyright (c) 2015 Runtime Inc
+  *
+@@ -47,6 +48,7 @@ int settings_load_subtree_direct(
+ 	 *    apply config
+ 	 *    commit all
+ 	 */
++	cs = settings_save_dst;
+ 	SYS_SLIST_FOR_EACH_CONTAINER(&settings_load_srcs, cs, cs_next) {
+ 		cs->cs_itf->csi_load(cs, &arg);
+ 	}
+diff --git a/src/util/util.h b/src/util/util.h
+index b169638..45255b3 100644
+--- a/src/util/util.h
++++ b/src/util/util.h
+@@ -1,6 +1,7 @@
+ /*
+  * Copyright (c) 2010-2014 Wind River Systems, Inc.
+  * Copyright (c) 2023 Albert Krenz
++ * Copyright (c) 2024 Atmosic
+  *
+  * SPDX-License-Identifier: Apache-2.0
+  */
+@@ -8,15 +9,8 @@
+ #ifndef UTIL_H_
+ #define UTIL_H_
+ 
+-#define MAX(a,b) \
+-  ({ __typeof__ (a) _a = (a); \
+-      __typeof__ (b) _b = (b); \
+-    _a > _b ? _a : _b; })
+-
+-#define MIN(a,b) \
+-  ({ __typeof__ (a) _a = (a); \
+-      __typeof__ (b) _b = (b); \
+-    _a < _b ? _a : _b; })
++#define MAX(a, b) (((a) > (b)) ? (a) : (b))
++#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+ 
+ /**
+  * @brief Get a pointer to a structure containing the element
