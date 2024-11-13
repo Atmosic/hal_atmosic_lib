@@ -6,9 +6,9 @@ are available in the Git repository at:
 
   /prj/digital/db/contrib/zephyr-settings-generator.git atmosic_dev
 
-for you to fetch changes up to 02a86a7033ac75bf449ac8d42d1ec89a770e3d8f:
+for you to fetch changes up to d06dbdd97c85e809c94eeb85d73471ed21a7c7f4:
 
-  [SOFTWARE-6882][Zephyr] Rename erase_block_size to part_sector_size (2024-09-19 01:43:27 -0700)
+  [SOFTWARE-7041][ZSG] Added the function of reading all tag data (2024-10-15 20:42:50 -0700)
 
 ----------------------------------------------------------------
 Hormoz Zarnani (1):
@@ -17,11 +17,12 @@ Hormoz Zarnani (1):
 Tiffany (1):
       [SOFTWARE-6092][Zephyr] Integrate Zephyr settings with the setting_generate sample code with CMAKE build.
 
-thsieh (4):
+thsieh (5):
       [SOFTWARE-6092][Zephyr] Resolved the key name length bug
       [SOFTWARE-6845][zephyr-settings-generator] Add decimal type checking
       [SOFTWARE-6845][zephyr-settings-generator] Revert the changes to 'Add decimal type checking'
       [SOFTWARE-6882][Zephyr] Rename erase_block_size to part_sector_size
+      [SOFTWARE-7041][ZSG] Added the function of reading all tag data
 
  CMakeLists.txt                               |  41 +++++-
  Readme.md                                    |  35 ++++++
@@ -29,7 +30,7 @@ thsieh (4):
  sample.yml                                   |   4 +
  src/CMakeLists.txt                           |  14 ++-
  src/atmosic/CMakeLists.txt                   |  13 ++
- src/atmosic/atm_settingsreader.cpp           |  59 +++++++++
+ src/atmosic/atm_settingsreader.cpp           |  71 +++++++++++
  src/atmosic/atm_settingswriter.cpp           | 121 ++++++++++++++++++
  src/atmosic/atm_tool.cpp                     | 179 +++++++++++++++++++++++++++
  src/atmosic/atm_util.cpp                     |  32 +++++
@@ -50,7 +51,7 @@ thsieh (4):
  src/settings/settings_priv.h                 | 132 --------------------
  src/settings/settings_store.c                |   2 +
  src/util/util.h                              |  12 +-
- 27 files changed, 821 insertions(+), 182 deletions(-)
+ 27 files changed, 833 insertions(+), 182 deletions(-)
  create mode 100644 run_zsg.bat
  create mode 100644 sample.yml
  create mode 100644 src/atmosic/CMakeLists.txt
@@ -284,10 +285,10 @@ index 0000000..4310d80
 +target_link_libraries(atmosic PUBLIC nvs settings yaml-cpp)
 diff --git a/src/atmosic/atm_settingsreader.cpp b/src/atmosic/atm_settingsreader.cpp
 new file mode 100644
-index 0000000..ba5c043
+index 0000000..4175abe
 --- /dev/null
 +++ b/src/atmosic/atm_settingsreader.cpp
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,71 @@
 +/*
 + * SPDX-FileCopyrightText: 2024 Atmosic
 + * SPDX-License-Identifier: Apache-2.0
@@ -303,7 +304,11 @@ index 0000000..ba5c043
 +    std::stringstream data;
 +
 +    // Append key to the stringstream
-+    data << sub_tree_name << "/";
++    if (sub_tree_name != "ALL")
++    {
++        data << sub_tree_name << "/";
++    }
++
 +    for (size_t i = 0; i < key_size; i++)
 +    {
 +        data << key[i];
@@ -343,8 +348,16 @@ index 0000000..ba5c043
 +{
 +    settings.clear();
 +    sub_tree_name = name;
-+    int rc = settings_load_subtree_direct(name.c_str(),
-+	   subtree_callback, &settings);
++    int rc;
++    if (name == "ALL")
++    {
++        rc = settings_load_subtree_direct(NULL, subtree_callback, &settings);
++    }
++    else
++    {
++        rc = settings_load_subtree_direct(name.c_str(), subtree_callback,
++            &settings);
++    }
 +    return rc;
 +}
 \ No newline at end of file
