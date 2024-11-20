@@ -6,9 +6,9 @@ are available in the Git repository at:
 
   /prj/digital/db/contrib/zephyr-settings-generator.git atmosic_dev
 
-for you to fetch changes up to 02a86a7033ac75bf449ac8d42d1ec89a770e3d8f:
+for you to fetch changes up to 0396c68398bb2f342da857ac4ab3d1cc85df95b9:
 
-  [SOFTWARE-6882][Zephyr] Rename erase_block_size to part_sector_size (2024-09-19 01:43:27 -0700)
+  [SOFTWARE-7186][ZSG] Update Readme.md description (2024-11-13 21:57:56 -0800)
 
 ----------------------------------------------------------------
 Hormoz Zarnani (1):
@@ -17,19 +17,22 @@ Hormoz Zarnani (1):
 Tiffany (1):
       [SOFTWARE-6092][Zephyr] Integrate Zephyr settings with the setting_generate sample code with CMAKE build.
 
-thsieh (4):
+thsieh (7):
       [SOFTWARE-6092][Zephyr] Resolved the key name length bug
       [SOFTWARE-6845][zephyr-settings-generator] Add decimal type checking
       [SOFTWARE-6845][zephyr-settings-generator] Revert the changes to 'Add decimal type checking'
       [SOFTWARE-6882][Zephyr] Rename erase_block_size to part_sector_size
+      [SOFTWARE-7041][ZSG] Added the function of reading all tag data
+      [SOFTWARE-7186][Zephyr] ZSG tool supports tag values exceeding 256 bytes.
+      [SOFTWARE-7186][ZSG] Update Readme.md description
 
  CMakeLists.txt                               |  41 +++++-
- Readme.md                                    |  35 ++++++
+ Readme.md                                    |  36 ++++++
  run_zsg.bat                                  |  44 +++++++
  sample.yml                                   |   4 +
  src/CMakeLists.txt                           |  14 ++-
  src/atmosic/CMakeLists.txt                   |  13 ++
- src/atmosic/atm_settingsreader.cpp           |  59 +++++++++
+ src/atmosic/atm_settingsreader.cpp           |  71 +++++++++++
  src/atmosic/atm_settingswriter.cpp           | 121 ++++++++++++++++++
  src/atmosic/atm_tool.cpp                     | 179 +++++++++++++++++++++++++++
  src/atmosic/atm_util.cpp                     |  32 +++++
@@ -42,7 +45,7 @@ thsieh (4):
  src/nvs/flash.h                              |   2 +
  src/nvs/nvs.c                                |  13 +-
  src/nvs/nvs.h                                |   5 +
- src/settings/include/settings.h              |  15 +++
+ src/settings/include/settings.h              |  19 +++
  src/settings/include/settings/settings_nvs.h |   7 +-
  src/settings/settings.c                      |  24 ++--
  src/settings/settings_init.c                 |  22 ++++
@@ -50,7 +53,7 @@ thsieh (4):
  src/settings/settings_priv.h                 | 132 --------------------
  src/settings/settings_store.c                |   2 +
  src/util/util.h                              |  12 +-
- 27 files changed, 821 insertions(+), 182 deletions(-)
+ 27 files changed, 838 insertions(+), 182 deletions(-)
  create mode 100644 run_zsg.bat
  create mode 100644 sample.yml
  create mode 100644 src/atmosic/CMakeLists.txt
@@ -120,7 +123,7 @@ index a924bc8..ba67236 100644
  set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
  include(MunkeiVersionFromGit)
 diff --git a/Readme.md b/Readme.md
-index a01c989..f4c1610 100644
+index a01c989..743146a 100644
 --- a/Readme.md
 +++ b/Readme.md
 @@ -26,6 +26,7 @@ For more information on the Zephyr settings subsystem see: https://docs.zephyrpr
@@ -131,7 +134,7 @@ index a01c989..f4c1610 100644
  - `CMake` with version >= 3.6
  - Compiler with C++17 support
  - Ninja or Make as buildtool
-@@ -46,3 +47,37 @@ after building.
+@@ -46,3 +47,38 @@ after building.
  
  # License
  This Software is licensed under [BSD-2-Clause Plus Patent License](https://spdx.org/licenses/BSD-2-Clause-Patent)
@@ -139,12 +142,13 @@ index a01c989..f4c1610 100644
 +=============== For Atmosic special application ===============
 +
 +Previously, configuring through Boost was difficult to maintain with large amounts of data, so the data source has been standardized to the YAML file format.
++The maximum length of the Tag Value in the YAML file currently supports up to 1024 bytes.
 +Set 'ATMOSIC_ZSG' in CMakeLists.txt to ON to enable this feature.
 +
 +# Execution example
 +1. To generate binary string data to the settings storage area(Data read from YAML file):
 +```
-+Usage: zsg.exe write <yaml_file> <partition_sector_size > <partition_address> <partition_size> <output_file>
++Usage: zsg.exe write <yaml_file> <partition_sector_size> <partition_address> <partition_size> <output_file>
 +```
 +
 +- Windows example:
@@ -157,7 +161,7 @@ index a01c989..f4c1610 100644
 +
 +2. Read NVS information from a bin file and save it to a YAML file(Data read from NVS file.
 +```
-+Usage: zsg.exe read <yaml_file> <subtree_name> <partition_sector_size > <partition_address> <partition_size> <output_file>
++Usage: zsg.exe read <bin_file> <subtree_name> <partition_sector_size> <partition_address> <partition_size> <output_file>
 +```
 +- Windows example:
 +$ cd build
@@ -165,7 +169,7 @@ index a01c989..f4c1610 100644
 +
 +- Linux example:
 +$ cd build
-+§ src/zsg read ../nvs.bin 1024 0x0 2048 ../test.yml
++§ src/zsg read ../nvs.bin FACTORY 1024 0x0 2048 ../test.yml
 +
 +# Yaml file format
 +Please refer to the 'sample.yml' in the directory
@@ -284,10 +288,10 @@ index 0000000..4310d80
 +target_link_libraries(atmosic PUBLIC nvs settings yaml-cpp)
 diff --git a/src/atmosic/atm_settingsreader.cpp b/src/atmosic/atm_settingsreader.cpp
 new file mode 100644
-index 0000000..ba5c043
+index 0000000..4175abe
 --- /dev/null
 +++ b/src/atmosic/atm_settingsreader.cpp
-@@ -0,0 +1,59 @@
+@@ -0,0 +1,71 @@
 +/*
 + * SPDX-FileCopyrightText: 2024 Atmosic
 + * SPDX-License-Identifier: Apache-2.0
@@ -303,7 +307,11 @@ index 0000000..ba5c043
 +    std::stringstream data;
 +
 +    // Append key to the stringstream
-+    data << sub_tree_name << "/";
++    if (sub_tree_name != "ALL")
++    {
++        data << sub_tree_name << "/";
++    }
++
 +    for (size_t i = 0; i < key_size; i++)
 +    {
 +        data << key[i];
@@ -343,14 +351,22 @@ index 0000000..ba5c043
 +{
 +    settings.clear();
 +    sub_tree_name = name;
-+    int rc = settings_load_subtree_direct(name.c_str(),
-+	   subtree_callback, &settings);
++    int rc;
++    if (name == "ALL")
++    {
++        rc = settings_load_subtree_direct(NULL, subtree_callback, &settings);
++    }
++    else
++    {
++        rc = settings_load_subtree_direct(name.c_str(), subtree_callback,
++            &settings);
++    }
 +    return rc;
 +}
 \ No newline at end of file
 diff --git a/src/atmosic/atm_settingswriter.cpp b/src/atmosic/atm_settingswriter.cpp
 new file mode 100644
-index 0000000..240d7bc
+index 0000000..caf448c
 --- /dev/null
 +++ b/src/atmosic/atm_settingswriter.cpp
 @@ -0,0 +1,121 @@
@@ -361,7 +377,7 @@ index 0000000..240d7bc
 +
 +#include "atm_settingswriter.h"
 +
-+const size_t MAX_BYTE_ARRAY_SIZE = 256;
++const size_t MAX_BYTE_ARRAY_SIZE = 1024;
 +
 +struct HexValue {
 +    uint8_t value[MAX_BYTE_ARRAY_SIZE];
@@ -1032,7 +1048,7 @@ index ccf48a6..9ca7fb0 100644
  #ifdef __cplusplus
  extern "C" {
 diff --git a/src/settings/include/settings.h b/src/settings/include/settings.h
-index a393944..3d57d8b 100644
+index a393944..a407b3a 100644
 --- a/src/settings/include/settings.h
 +++ b/src/settings/include/settings.h
 @@ -1,4 +1,5 @@
@@ -1053,7 +1069,15 @@ index a393944..3d57d8b 100644
  #ifdef __cplusplus
  extern "C" {
  #endif
-@@ -35,6 +41,11 @@ extern "C" {
+@@ -31,10 +37,19 @@ extern "C" {
+ 
+ #define SETTINGS_MAX_DIR_DEPTH	8	/* max depth of settings tree */
+ #define SETTINGS_MAX_NAME_LEN	(8 * SETTINGS_MAX_DIR_DEPTH)
++#ifdef ATMOSIC_ZSG
++#define SETTINGS_MAX_VAL_LEN	1024
++#else
+ #define SETTINGS_MAX_VAL_LEN	256
++#endif
  #define SETTINGS_NAME_SEPARATOR	'/'
  #define SETTINGS_NAME_END '='
  
@@ -1065,7 +1089,7 @@ index a393944..3d57d8b 100644
  /* place for settings additions:
   * up to 7 separators, '=', '\0'
   */
-@@ -215,7 +226,11 @@ struct settings_handler_static {
+@@ -215,7 +230,11 @@ struct settings_handler_static {
   *
   * @return 0 on success, non-zero on failure.
   */
