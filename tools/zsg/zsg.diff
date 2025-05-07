@@ -6,9 +6,9 @@ are available in the Git repository at:
 
   /prj/digital/db/contrib/zephyr-settings-generator.git atmosic_dev
 
-for you to fetch changes up to 0396c68398bb2f342da857ac4ab3d1cc85df95b9:
+for you to fetch changes up to 070c7c8cb62062199de3ffa0c3fd9d8efe76d140:
 
-  [SOFTWARE-7186][ZSG] Update Readme.md description (2024-11-13 21:57:56 -0800)
+  [SOFTWARE-8363][ZSG Tool] Remove unused 'partition_address' parameter. (2025-04-30 00:23:25 -0700)
 
 ----------------------------------------------------------------
 Hormoz Zarnani (1):
@@ -17,7 +17,7 @@ Hormoz Zarnani (1):
 Tiffany (1):
       [SOFTWARE-6092][Zephyr] Integrate Zephyr settings with the setting_generate sample code with CMAKE build.
 
-thsieh (7):
+thsieh (11):
       [SOFTWARE-6092][Zephyr] Resolved the key name length bug
       [SOFTWARE-6845][zephyr-settings-generator] Add decimal type checking
       [SOFTWARE-6845][zephyr-settings-generator] Revert the changes to 'Add decimal type checking'
@@ -25,35 +25,39 @@ thsieh (7):
       [SOFTWARE-7041][ZSG] Added the function of reading all tag data
       [SOFTWARE-7186][Zephyr] ZSG tool supports tag values exceeding 256 bytes.
       [SOFTWARE-7186][ZSG] Update Readme.md description
+      [SOFTWARE-7835][ZSG Tool] Support for converting tag values with string attributes
+      [SOFTWARE-8353]ZSG tool showing incorrect values
+      [SOFTWARE-8353] ZSG tool usage/help
+      [SOFTWARE-8363][ZSG Tool] Remove unused 'partition_address' parameter.
 
- CMakeLists.txt                               |  41 +++++-
- Readme.md                                    |  36 ++++++
- run_zsg.bat                                  |  44 +++++++
+ CMakeLists.txt                               |  41 +++-
+ Readme.md                                    |  36 ++++
+ run_zsg.bat                                  |  43 +++++
  sample.yml                                   |   4 +
- src/CMakeLists.txt                           |  14 ++-
+ src/CMakeLists.txt                           |  14 +-
  src/atmosic/CMakeLists.txt                   |  13 ++
- src/atmosic/atm_settingsreader.cpp           |  71 +++++++++++
- src/atmosic/atm_settingswriter.cpp           | 121 ++++++++++++++++++
- src/atmosic/atm_tool.cpp                     | 179 +++++++++++++++++++++++++++
- src/atmosic/atm_util.cpp                     |  32 +++++
- src/atmosic/include/atm_settingsreader.h     |  29 +++++
- src/atmosic/include/atm_settingswriter.h     |  49 ++++++++
- src/atmosic/include/atm_tool.h               |  22 ++++
- src/atmosic/include/atm_util.h               |  16 +++
- src/main.cpp                                 |  17 ++-
- src/nvs/flash.cpp                            |  41 +++---
+ src/atmosic/atm_settingsreader.cpp           |  71 +++++++
+ src/atmosic/atm_settingswriter.cpp           | 123 ++++++++++++
+ src/atmosic/atm_tool.cpp                     | 278 +++++++++++++++++++++++++++
+ src/atmosic/atm_util.cpp                     |  79 ++++++++
+ src/atmosic/include/atm_settingsreader.h     |  29 +++
+ src/atmosic/include/atm_settingswriter.h     |  49 +++++
+ src/atmosic/include/atm_tool.h               |  22 +++
+ src/atmosic/include/atm_util.h               |  25 +++
+ src/main.cpp                                 |  17 +-
+ src/nvs/flash.cpp                            |  41 ++--
  src/nvs/flash.h                              |   2 +
  src/nvs/nvs.c                                |  13 +-
  src/nvs/nvs.h                                |   5 +
- src/settings/include/settings.h              |  19 +++
+ src/settings/include/settings.h              |  19 ++
  src/settings/include/settings/settings_nvs.h |   7 +-
- src/settings/settings.c                      |  24 ++--
- src/settings/settings_init.c                 |  22 ++++
- src/settings/settings_nvs.c                  |  53 ++++++++
- src/settings/settings_priv.h                 | 132 --------------------
+ src/settings/settings.c                      |  24 +--
+ src/settings/settings_init.c                 |  22 +++
+ src/settings/settings_nvs.c                  |  53 +++++
+ src/settings/settings_priv.h                 | 132 -------------
  src/settings/settings_store.c                |   2 +
  src/util/util.h                              |  12 +-
- 27 files changed, 838 insertions(+), 182 deletions(-)
+ 27 files changed, 994 insertions(+), 182 deletions(-)
  create mode 100644 run_zsg.bat
  create mode 100644 sample.yml
  create mode 100644 src/atmosic/CMakeLists.txt
@@ -123,7 +127,7 @@ index a924bc8..ba67236 100644
  set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
  include(MunkeiVersionFromGit)
 diff --git a/Readme.md b/Readme.md
-index a01c989..743146a 100644
+index a01c989..f3123ab 100644
 --- a/Readme.md
 +++ b/Readme.md
 @@ -26,6 +26,7 @@ For more information on the Zephyr settings subsystem see: https://docs.zephyrpr
@@ -148,51 +152,50 @@ index a01c989..743146a 100644
 +# Execution example
 +1. To generate binary string data to the settings storage area(Data read from YAML file):
 +```
-+Usage: zsg.exe write <yaml_file> <partition_sector_size> <partition_address> <partition_size> <output_file>
++Usage: zsg.exe write <yaml_file> <partition_sector_size> <partition_size> <bin_output_file>
 +```
 +
 +- Windows example:
 +$ cd build
-+§ src\\zsg.exe write ..\\factory.yml 1024 0x0 2048 ..\\nvs.bin
++§ src\\zsg.exe write ..\\factory.yml 1024 2048 ..\\nvs.bin
 +
 +- Linux example:
 +$ cd build
-+§ src/zsg write ../factory.yml 1024 0x0 2048 ../nvs.bin
++§ src/zsg write ../factory.yml 1024 2048 ../nvs.bin
 +
-+2. Read NVS information from a bin file and save it to a YAML file(Data read from NVS file.
++2. Read NVS information from a bin file and save it to a YAML file(Data read from NVS file).
 +```
-+Usage: zsg.exe read <bin_file> <subtree_name> <partition_sector_size> <partition_address> <partition_size> <output_file>
++Usage: zsg.exe read <bin_file> <FACTORY | SETTINGS> <partition_sector_size> <partition_size> <yaml_output_file>
 +```
 +- Windows example:
 +$ cd build
-+§ src\\zsg.exe read ..\\nvs.bin FACTORY 1024 0x0 2048 ..\\test.yml
++§ src\\zsg.exe read ..\\nvs.bin FACTORY 1024 2048 ..\\test.yml
 +
 +- Linux example:
 +$ cd build
-+§ src/zsg read ../nvs.bin FACTORY 1024 0x0 2048 ../test.yml
++§ src/zsg read ../nvs.bin FACTORY 1024 2048 ../test.yml
 +
 +# Yaml file format
 +Please refer to the 'sample.yml' in the directory
 \ No newline at end of file
 diff --git a/run_zsg.bat b/run_zsg.bat
 new file mode 100644
-index 0000000..205e218
+index 0000000..673b035
 --- /dev/null
 +++ b/run_zsg.bat
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,43 @@
 +@echo off
 +setlocal
 +
 +set CURRENT_DIR=%CD%
 +set ACTION=%1
 +set PART_SECTOR_SIZE=%2
-+set PART_ADDR=%3
-+set PART_SIZE=%4
-+set NVS_BIN_FILE=%5
++set PART_SIZE=%3
++set NVS_BIN_FILE=%4
 +
 +if /i "%ACTION%"=="write" (
-+    set FACTORY_YAML_PATH=%6
-+    set SETTINGS_YAML_PATH=%7
++    set FACTORY_YAML_PATH=%5
++    set SETTINGS_YAML_PATH=%6
 +)
 +
 +set EXE_PATH="%CURRENT_DIR%\build_windows\src\zsg.exe"
@@ -203,16 +206,16 @@ index 0000000..205e218
 +
 +if /i "%ACTION%"=="read" (
 +    :: Read factory NVS information from a bin file and save it to a YAML file.
-+    %EXE_PATH% %ACTION% %NVS_BIN_FILE% "FACTORY" %PART_SECTOR_SIZE% %PART_ADDR% %PART_SIZE% %FACTORY_YAML_FILE%
++    %EXE_PATH% %ACTION% %NVS_BIN_FILE% "FACTORY" %PART_SECTOR_SIZE% %PART_SIZE% %FACTORY_YAML_FILE%
 +
 +    :: Read settings NVS information from a bin file and save it to a YAML file.
-+    %EXE_PATH% %ACTION% %NVS_BIN_FILE% "SETTINGS" %PART_SECTOR_SIZE% %PART_ADDR% %PART_SIZE% %SETTINGS_YAML_FILE%
++    %EXE_PATH% %ACTION% %NVS_BIN_FILE% "SETTINGS" %PART_SECTOR_SIZE% %PART_SIZE% %SETTINGS_YAML_FILE%
 +) else (
 +    :: Generate factory bin file
-+    %EXE_PATH% %ACTION% %FACTORY_YAML_PATH% %PART_SECTOR_SIZE% %PART_ADDR% %PART_SIZE% %FACTORY_BIN_FILE%
++    %EXE_PATH% %ACTION% %FACTORY_YAML_PATH% %PART_SECTOR_SIZE% %PART_SIZE% %FACTORY_BIN_FILE%
 +
 +    :: Generate settings bin file
-+    %EXE_PATH% %ACTION% %SETTINGS_YAML_PATH% %PART_SECTOR_SIZE% %PART_ADDR% %PART_SIZE% %SETTINGS_BIN_FILE%
++    %EXE_PATH% %ACTION% %SETTINGS_YAML_PATH% %PART_SECTOR_SIZE% %PART_SIZE% %SETTINGS_BIN_FILE%
 +
 +    :: Combine bin file
 +    copy /b %FACTORY_BIN_FILE% + %SETTINGS_BIN_FILE% %NVS_BIN_FILE%
@@ -366,16 +369,17 @@ index 0000000..4175abe
 \ No newline at end of file
 diff --git a/src/atmosic/atm_settingswriter.cpp b/src/atmosic/atm_settingswriter.cpp
 new file mode 100644
-index 0000000..caf448c
+index 0000000..090514d
 --- /dev/null
 +++ b/src/atmosic/atm_settingswriter.cpp
-@@ -0,0 +1,121 @@
+@@ -0,0 +1,123 @@
 +/*
 + * SPDX-FileCopyrightText: 2024 Atmosic
 + * SPDX-License-Identifier: Apache-2.0
 +*/
 +
 +#include "atm_settingswriter.h"
++#include "atm_util.h"
 +
 +const size_t MAX_BYTE_ARRAY_SIZE = 1024;
 +
@@ -465,7 +469,7 @@ index 0000000..caf448c
 +    std::string value{ get_value_from_string(m_data)};
 +    if (!strncmp(value.data(), "0x", 2)) return -1;
 +    std::cout << "Store Setting \"" << key << "\" with value \""
-+	      << value << "\"" << std::endl;
++        << value << "\"" << std::endl;
 +    settings_save_one(key.c_str(), value.data(), value.size());
 +    return 0;
 +}
@@ -486,81 +490,136 @@ index 0000000..caf448c
 +    char const *val = value.data();
 +    if (strncmp(val, "0x", 2)) return -1;
 +    if (str2bytearray_little_endian(val + 2, hex_value)) return -1;
-+    std::cout << "Store Setting \"" << key << "\" with value \""
-+	      << hex_value.value << "\"" << std::endl;
++    std::cout << "Store Setting \"" << key << "\" with value 0x"
++        << AtmUtil::bytesToReversedHexUpper(hex_value.value, hex_value.len)
++        << std::endl;
 +    settings_save_one(key.c_str(), hex_value.value, hex_value.len);
 +    return 0;
 +}
 diff --git a/src/atmosic/atm_tool.cpp b/src/atmosic/atm_tool.cpp
 new file mode 100644
-index 0000000..6833cd3
+index 0000000..a8b9db9
 --- /dev/null
 +++ b/src/atmosic/atm_tool.cpp
-@@ -0,0 +1,179 @@
+@@ -0,0 +1,278 @@
 +/*
-+ * SPDX-FileCopyrightText: 2024 Atmosic
++ * SPDX-FileCopyrightText: 2024-2025 Atmosic
 + * SPDX-License-Identifier: Apache-2.0
 +*/
 +
 +#include "atm_tool.h"
 +
 +std::vector<std::string> settings;
++std::vector<std::string> attributes;
 +
-+int generate_yaml(std::string const &ymlFilePath)
++std::string find_tag_attr(std::string const& tag_name)
 +{
-+    YAML::Node root;
-+    YAML::Node data = root["data"];
-+    int data_num = 1;
++    std::string attr_name = "", attr_value = "";
 +
-+    std::reverse(settings.begin(), settings.end());
-+    std::cout << "********* Save YAML data start *********" << std::endl;
-+    for (auto const &setting : settings)
++    for (size_t i = 0; i < attributes.size(); ++i)
 +    {
-+        size_t pos = setting.find(':');
-+        if (pos != std::string::npos)
++        AtmUtil::splitKeyValue(attributes[i], attr_name, attr_value);
++        if (attr_name == tag_name)
 +        {
-+            YAML::Node data_node;
-+            std::string key = setting.substr(0, pos);
-+            std::string value = setting.substr(pos + 1);
-+            key = key.c_str();
-+            value = value.c_str();
-+            data_node["tag_name"] = key;
-+            data_node["tag_value"] = "0x" + AtmUtil::toUpperCaseHexString(value);
-+            std::string name = "data_" + std::to_string(data_num);
-+            data[name] = data_node;
-+            std::cout << "Tag Name: " << data_node["tag_name"] << ", Tag Value: "
-+                  << data_node["tag_value"] << std::endl;
-+            data_num += 1;
++            return attr_value;
 +        }
 +    }
-+    std::cout << "********* Save YAML data end *********" << std::endl;
++    return "";
++}
++
++int generate_yaml(std::string const& ymlFilePath, std::string const& type)
++{
++    YAML::Node root;
++    YAML::Node data = root[type];
++    int data_num = 1;
++
++    std::cout << "********* Save " << ymlFilePath << " data *********"
++        << std::endl;
++    for (size_t i = 0; i < settings.size(); ++i)
++    {
++        std::string setting_name = "", seting_value = "";
++        std::string attr_value = "Hex";
++
++        AtmUtil::splitKeyValue(settings[i], setting_name, seting_value);
++        if (!attributes.empty())
++        {
++            attr_value = find_tag_attr(setting_name);
++        }
++
++        YAML::Node data_node;
++        data_node["tag_name"] = setting_name.c_str();
++        if (type == "attr")
++        {
++            if (strncmp(seting_value.data(), "0x", 2))
++            {
++                data_node["tag_attr"] = "String";
++            }
++            else
++            {
++                data_node["tag_attr"] = "Hex";
++            }
++            std::cout << "Tag Name: " << data_node["tag_name"]
++                << ", Tag Attribute: " << data_node["tag_attr"]
++                << std::endl;
++        }
++        else
++        {
++            if (attr_value == "Hex")
++            {
++                data_node["tag_value"] = "0x" + \
++                    AtmUtil::toUpperCaseHexString(seting_value);
++            }
++            else if (attr_value == "String")
++            {
++                data_node["tag_value"] = \
++                    AtmUtil::reversedHexToAscii(seting_value);
++            }
++            std::cout << "Tag Name: " << data_node["tag_name"]
++                << ", Tag Value: " << data_node["tag_value"] << std::endl;
++        }
++        std::string name = "data_" + std::to_string(data_num);
++        data[name] = data_node;
++        data_num += 1;
++    }
 +    std::ofstream fout(ymlFilePath);
 +    fout << root;
 +    return 0;
 +}
 +
-+int parser_yaml(std::string const &ymlFilePath)
++int parser_yaml(std::string const &ymlFilePath, std::string const &type)
 +{
 +    YAML::Node config = YAML::LoadFile(ymlFilePath);
 +    int data_num = 0;
 +
-+    if (config["data"])
++    if (config[type])
 +    {
-+        YAML::Node const &data = config["data"];
-+        std::cout << "********* Load YAML data start *********" << std::endl;
++        YAML::Node const &data = config[type];
++        std::cout << "********* Load " << ymlFilePath << " data *********"
++            << std::endl;
 +        for (auto it = data.begin(); it != data.end(); ++it)
 +        {
-+            YAML::Node const &entry = it->second;
-+            if (entry["tag_name"] && entry["tag_value"]) {
++            YAML::Node const& entry = it->second;
++            if (entry["tag_name"])
++            {
 +                std::string tagName = entry["tag_name"].as<std::string>();
-+                std::string tagValue = entry["tag_value"].as<std::string>();
-+                std::cout << "Tag Name: " << tagName << ", Tag Value: "
-+                  << tagValue << std::endl;
-+                settings.push_back(tagName + ":" + tagValue);
-+                data_num += 1;
++                if (type == "attr" && entry["tag_attr"])
++                {
++                    std::string  tagAttr = entry["tag_attr"].as<std::string>();
++                    std::cout << "Tag Name: " << tagName << ", Tag Attribute: "
++                        << tagAttr << std::endl;
++                    attributes.push_back(tagName + ":" + tagAttr);
++                    data_num += 1;
++                }
++                else if (type == "data" && entry["tag_value"])
++                {
++                    std::string tagValue = entry["tag_value"].as<std::string>();
++                    std::cout << "Tag Name: " << tagName << ", Tag Value: "
++                        << tagValue << std::endl;
++                    settings.push_back(tagName + ":" + tagValue);
++                    data_num += 1;
++                }
 +            }
 +        }
-+        std::cout << "********* Load YAML data end *********" << std::endl;
 +    }
 +    else
 +    {
@@ -569,14 +628,14 @@ index 0000000..6833cd3
 +    return data_num;
 +}
 +
-+int bin_to_yaml(int argc, char *argv[])
++int bin_to_yaml(int argc, char* argv[])
 +{
-+    if (argc != 8)
++    if (argc != 7)
 +    {
 +        std::cout << "Usage: " << argv[0] << " " << argv[1]
-+                  << " <bin_file> <subtree_name> <partition_sector_size>"
-+                  << " <partition_address> <partition_size> <yaml_file>"
-+                  << std::endl;
++            << " <bin_file> <FACTORY | SETTINGS> <partition_sector_size>"
++            << " <partition_size> <yaml_output_file>"
++            << std::endl;
 +        return 1;
 +    }
 +
@@ -584,29 +643,42 @@ index 0000000..6833cd3
 +    std::string bin_file = argv[2];
 +    std::string sub_tree_name = argv[3];
 +    uint16_t part_sector_size = AtmUtil::str2uint16(argv[4]);
-+    off_t part_addr = AtmUtil::str2size(argv[5]);
-+    uint16_t part_size = AtmUtil::str2uint16(argv[6]);
-+    std::string yaml_file = argv[7];
++    uint16_t part_size = AtmUtil::str2uint16(argv[5]);
++    std::string yaml_file = argv[6];
 +
 +    if (!fs::exists(bin_file))
 +    {
-+        std::cout << "Can't find " << bin_file << " bin file" << std::endl;
++        std::cout << "Can't find " << bin_file << " file" << std::endl;
 +        return 1;
 +    }
 +
++    std::filesystem::path path(bin_file);
++    std::string attr_file = (path.parent_path() / (path.stem().string() + \
++        "_attr.yaml")).string();
++    if (!fs::exists(attr_file))
++    {
++        std::cout << "Can't find " << attr_file << " file" << std::endl;
++    }
++    else{
++        attributes.clear();
++        parser_yaml(attr_file, "attr");
++    }
++
 +    settings.clear();
-+    std::cout << "Generate [" << yaml_file << "]" << std::endl;
++    std::cout << "********* Read data from " << bin_file << " *********"
++        << std::endl;
 +    rc = settings_subsys_init(part_sector_size, part_size, bin_file.c_str(),
 +                              true);
 +    if (rc)
 +    {
-+	    std::cout << "Settings subsys init failed" << std::endl;
-+	    return 1;
++        std::cout << "Settings subsys init failed" << std::endl;
++        return 1;
 +    }
 +    rc = SettingsReader::read(sub_tree_name, settings);
 +    if (!settings.empty())
 +    {
-+	generate_yaml(yaml_file);
++        std::reverse(settings.begin(), settings.end());
++        generate_yaml(yaml_file, "data");
 +    }
 +    else
 +    {
@@ -618,19 +690,18 @@ index 0000000..6833cd3
 +
 +int yaml_to_bin(int argc,char *argv[])
 +{
-+    if (argc != 7)
++    if (argc != 6)
 +    {
 +        std::cout << "Usage: " << argv[0] << " " << argv[1]
 +                  << " <yaml_file> <partition_sector_size>"
-+                  << " <partition_address> <partition_size> <bin_file>"
++                  << " <partition_size> <bin_output_file>"
 +                  << std::endl;
 +        return 1;
 +    }
 +    std::string yaml_file = argv[2];
 +    uint16_t part_sector_size = AtmUtil::str2uint16(argv[3]);
-+    off_t part_addr = AtmUtil::str2size(argv[4]);
-+    uint16_t part_size = AtmUtil::str2uint16(argv[5]);
-+    std::string bin_file = argv[6];
++    uint16_t part_size = AtmUtil::str2uint16(argv[4]);
++    std::string bin_file = argv[5];
 +
 +    if (!fs::exists(yaml_file))
 +    {
@@ -638,17 +709,31 @@ index 0000000..6833cd3
 +        return 1;
 +    }
 +
++    std::filesystem::path path(bin_file);
++    std::string attr_file = (path.parent_path() / (path.stem().string() + \
++        "_attr.yaml")).string();
++    if (fs::exists(attr_file))
++    {
++        std::filesystem::remove(attr_file);
++    }
++
 +    settings.clear();
 +    std::cout << "Load [" << yaml_file << "]" << std::endl;
-+    int data_num = parser_yaml(yaml_file);
++    int data_num = parser_yaml(yaml_file, "data");
 +    if (!settings.empty())
 +    {
++        // Generate attribute file
++        generate_yaml(attr_file, "attr");
++
 +        auto settings_writer = [](std::string str) {
-+        std::unique_ptr<SettingsWriter> writer = \
++            std::unique_ptr<SettingsWriter> writer = \
 +            SettingsWriterFactory::create(str);
 +            writer->write();
 +        };
-+        settings_subsys_init(part_sector_size, part_size, bin_file.c_str(), false);
++        std::cout << "********* Generate " << bin_file << " data *********"
++            << std::endl;
++        settings_subsys_init(part_sector_size, part_size, bin_file.c_str(),
++            false);
 +        std::for_each(std::begin(settings), std::end(settings),
 +                      settings_writer);
 +    }
@@ -660,9 +745,28 @@ index 0000000..6833cd3
 +    return 0;
 +}
 +
++void print_usage()
++{
++    std::cout << "Usage: zsg.exe [options]\n\n"
++        << "General Options:\n"
++        << "  -h, --help         Show this help message\n"
++        << "\nInput/Output:\n"
++        << "  read <bin_file> <FACTORY | SETTINGS> <partition_sector_size> <partition_size> <yaml_output_file>\n    Read NVS information from a bin file and save it to a YAML file\n\n"
++        << "  write <yaml_file> <partition_sector_size> <partition_size> <bin_output_file>\n    To generate binary string data to the settings storage area\n";
++}
++
 +int AtmTool::run_tool(int argc, char *argv[])
 +{
-+    if (strcmp(argv[1], "write") == 0)
++    if (argc == 1) {
++        print_usage();
++        return 1;
++    }
++
++    if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)
++    {
++        print_usage();
++    }
++    else if (strcmp(argv[1], "write") == 0)
 +    {
 +        return yaml_to_bin(argc, argv);
 +    }
@@ -679,12 +783,12 @@ index 0000000..6833cd3
 \ No newline at end of file
 diff --git a/src/atmosic/atm_util.cpp b/src/atmosic/atm_util.cpp
 new file mode 100644
-index 0000000..5aee15d
+index 0000000..c1d9ed2
 --- /dev/null
 +++ b/src/atmosic/atm_util.cpp
-@@ -0,0 +1,32 @@
+@@ -0,0 +1,79 @@
 +/*
-+ * SPDX-FileCopyrightText: 2024 Atmosic
++ * SPDX-FileCopyrightText: 2024-2025 Atmosic
 + * SPDX-License-Identifier: Apache-2.0
 +*/
 +
@@ -694,6 +798,43 @@ index 0000000..5aee15d
 +{
 +    std::string result = hexString;
 +    std::transform(result.begin(), result.end(), result.begin(), ::toupper);
++    return result;
++}
++
++std::string AtmUtil::bytesToReversedHexUpper(const uint8_t* data,
++    size_t length)
++{
++    std::stringstream stream;
++    stream << std::hex << std::uppercase << std::setfill('0');
++
++    for (int i = static_cast<int>(length) - 1; i >= 0; --i) {
++        stream << std::setw(2) << static_cast<int>(data[i]);
++    }
++
++    return stream.str();
++}
++
++std::string AtmUtil::reversedHexToAscii(std::string& hexStr)
++{
++    std::string result;
++
++    if (hexStr.size() % 2 != 0)
++    {
++        return "";
++    }
++
++    std::vector<std::string> hexBytes;
++    for (size_t i = 0; i < hexStr.size(); i += 2) {
++        hexBytes.push_back(hexStr.substr(i, 2));
++    }
++
++    std::reverse(hexBytes.begin(), hexBytes.end());
++
++    for (const std::string& byteStr : hexBytes) {
++        char ch = static_cast<char>(std::stoi(byteStr, nullptr, 16));
++        result += ch;
++    }
++
 +    return result;
 +}
 +
@@ -714,6 +855,16 @@ index 0000000..5aee15d
 +uint16_t AtmUtil::str2uint16(std::string const &str) {
 +    unsigned long value = std::stoul(str);
 +    return static_cast<uint16_t>(value);
++}
++
++void AtmUtil::splitKeyValue(std::string const& line, std::string& key,
++    std::string& value)
++{
++    size_t pos = line.find(':');
++    if (pos != std::string::npos) {
++        key = line.substr(0, pos);
++        value = line.substr(pos + 1);
++    }
 +}
 \ No newline at end of file
 diff --git a/src/atmosic/include/atm_settingsreader.h b/src/atmosic/include/atm_settingsreader.h
@@ -839,25 +990,34 @@ index 0000000..8c24b3e
 \ No newline at end of file
 diff --git a/src/atmosic/include/atm_util.h b/src/atmosic/include/atm_util.h
 new file mode 100644
-index 0000000..053bfcd
+index 0000000..963fe0c
 --- /dev/null
 +++ b/src/atmosic/include/atm_util.h
-@@ -0,0 +1,16 @@
+@@ -0,0 +1,25 @@
 +/*
-+ * SPDX-FileCopyrightText: 2024 Atmosic
++ * SPDX-FileCopyrightText: 2024-2025 Atmosic
 + * SPDX-License-Identifier: Apache-2.0
 + */
 +
 +#include <string>
 +#include <algorithm>
 +#include <sstream>
++#include <vector>
++#include <iostream>
++#include <iomanip>
++#include <cstdint>
 +
 +class AtmUtil
 +{
 +public:
 +    static std::string toUpperCaseHexString(std::string &hexString);
 +    static size_t str2size(std::string str);
-+    static uint16_t str2uint16(std::string const &str);
++    static uint16_t str2uint16(std::string const& str);
++    static void splitKeyValue(std::string const& line, std::string& key,
++        std::string& value);
++    static std::string bytesToReversedHexUpper(const uint8_t* data,
++        size_t length);
++    static std::string reversedHexToAscii(std::string& hexStr);
 +};
 \ No newline at end of file
 diff --git a/src/main.cpp b/src/main.cpp
