@@ -6,9 +6,9 @@ are available in the Git repository at:
 
   /prj/digital/db/contrib/zephyr-settings-generator.git atmosic_dev
 
-for you to fetch changes up to 070c7c8cb62062199de3ffa0c3fd9d8efe76d140:
+for you to fetch changes up to 262986ebe5539ef9fb016dce77bb6ff7b18b58cc:
 
-  [SOFTWARE-8363][ZSG Tool] Remove unused 'partition_address' parameter. (2025-04-30 00:23:25 -0700)
+  [SOFTWARE-4634] Offline tool for reading and populating Zephyr settings database (2025-05-07 19:32:47 -0700)
 
 ----------------------------------------------------------------
 Hormoz Zarnani (1):
@@ -17,7 +17,7 @@ Hormoz Zarnani (1):
 Tiffany (1):
       [SOFTWARE-6092][Zephyr] Integrate Zephyr settings with the setting_generate sample code with CMAKE build.
 
-thsieh (11):
+thsieh (12):
       [SOFTWARE-6092][Zephyr] Resolved the key name length bug
       [SOFTWARE-6845][zephyr-settings-generator] Add decimal type checking
       [SOFTWARE-6845][zephyr-settings-generator] Revert the changes to 'Add decimal type checking'
@@ -29,42 +29,47 @@ thsieh (11):
       [SOFTWARE-8353]ZSG tool showing incorrect values
       [SOFTWARE-8353] ZSG tool usage/help
       [SOFTWARE-8363][ZSG Tool] Remove unused 'partition_address' parameter.
+      [SOFTWARE-4634] Offline tool for reading and populating Zephyr settings database
 
- CMakeLists.txt                               |  41 +++-
- Readme.md                                    |  36 ++++
- run_zsg.bat                                  |  43 +++++
+ CMakeLists.txt                               |  41 ++-
+ Readme.md                                    |  53 ++++
+ run_zsg.bat                                  |  43 +++
  sample.yml                                   |   4 +
  src/CMakeLists.txt                           |  14 +-
- src/atmosic/CMakeLists.txt                   |  13 ++
- src/atmosic/atm_settingsreader.cpp           |  71 +++++++
- src/atmosic/atm_settingswriter.cpp           | 123 ++++++++++++
- src/atmosic/atm_tool.cpp                     | 278 +++++++++++++++++++++++++++
- src/atmosic/atm_util.cpp                     |  79 ++++++++
+ src/atmosic/CMakeLists.txt                   |  14 +
+ src/atmosic/atm_log.cpp                      |  33 +++
+ src/atmosic/atm_settingsreader.cpp           |  72 +++++
+ src/atmosic/atm_settingswriter.cpp           | 123 +++++++++
+ src/atmosic/atm_tool.cpp                     | 377 +++++++++++++++++++++++++++
+ src/atmosic/atm_util.cpp                     | 111 ++++++++
+ src/atmosic/include/atm_log.h                |  23 ++
  src/atmosic/include/atm_settingsreader.h     |  29 +++
- src/atmosic/include/atm_settingswriter.h     |  49 +++++
- src/atmosic/include/atm_tool.h               |  22 +++
- src/atmosic/include/atm_util.h               |  25 +++
+ src/atmosic/include/atm_settingswriter.h     |  49 ++++
+ src/atmosic/include/atm_tool.h               |  22 ++
+ src/atmosic/include/atm_util.h               |  27 ++
  src/main.cpp                                 |  17 +-
- src/nvs/flash.cpp                            |  41 ++--
+ src/nvs/flash.cpp                            |  41 ++-
  src/nvs/flash.h                              |   2 +
  src/nvs/nvs.c                                |  13 +-
  src/nvs/nvs.h                                |   5 +
  src/settings/include/settings.h              |  19 ++
  src/settings/include/settings/settings_nvs.h |   7 +-
- src/settings/settings.c                      |  24 +--
- src/settings/settings_init.c                 |  22 +++
- src/settings/settings_nvs.c                  |  53 +++++
- src/settings/settings_priv.h                 | 132 -------------
+ src/settings/settings.c                      |  24 +-
+ src/settings/settings_init.c                 |  22 ++
+ src/settings/settings_nvs.c                  |  53 ++++
+ src/settings/settings_priv.h                 | 132 ----------
  src/settings/settings_store.c                |   2 +
  src/util/util.h                              |  12 +-
- 27 files changed, 994 insertions(+), 182 deletions(-)
+ 29 files changed, 1202 insertions(+), 182 deletions(-)
  create mode 100644 run_zsg.bat
  create mode 100644 sample.yml
  create mode 100644 src/atmosic/CMakeLists.txt
+ create mode 100644 src/atmosic/atm_log.cpp
  create mode 100644 src/atmosic/atm_settingsreader.cpp
  create mode 100644 src/atmosic/atm_settingswriter.cpp
  create mode 100644 src/atmosic/atm_tool.cpp
  create mode 100644 src/atmosic/atm_util.cpp
+ create mode 100644 src/atmosic/include/atm_log.h
  create mode 100644 src/atmosic/include/atm_settingsreader.h
  create mode 100644 src/atmosic/include/atm_settingswriter.h
  create mode 100644 src/atmosic/include/atm_tool.h
@@ -127,7 +132,7 @@ index a924bc8..ba67236 100644
  set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
  include(MunkeiVersionFromGit)
 diff --git a/Readme.md b/Readme.md
-index a01c989..f3123ab 100644
+index a01c989..3d0fb8d 100644
 --- a/Readme.md
 +++ b/Readme.md
 @@ -26,6 +26,7 @@ For more information on the Zephyr settings subsystem see: https://docs.zephyrpr
@@ -138,7 +143,7 @@ index a01c989..f3123ab 100644
  - `CMake` with version >= 3.6
  - Compiler with C++17 support
  - Ninja or Make as buildtool
-@@ -46,3 +47,38 @@ after building.
+@@ -46,3 +47,55 @@ after building.
  
  # License
  This Software is licensed under [BSD-2-Clause Plus Patent License](https://spdx.org/licenses/BSD-2-Clause-Patent)
@@ -175,8 +180,25 @@ index a01c989..f3123ab 100644
 +$ cd build
 +§ src/zsg read ../nvs.bin FACTORY 1024 2048 ../test.yml
 +
++3. Show NVS information from a bin file(Data read from NVS file).
++```
++Usage: zsg.exe show <bin_file> <FACTORY | SETTINGS> <partition_sector_size> <partition_size> <show_pretty | show_verbose>
++```
++- Windows example:
++$ cd build
++§ src\\zsg.exe show ..\\nvs.bin FACTORY 1024 2048 show_pretty
++§ src\\zsg.exe show ..\\nvs.bin FACTORY 1024 2048 show_verbose
++
++- Linux example:
++$ cd build
++§ src/zsg show ../nvs.bin FACTORY 1024 2048 show_pretty
++§ src/zsg show ../nvs.bin FACTORY 1024 2048 show_verbose
++
 +# Yaml file format
 +Please refer to the 'sample.yml' in the directory
++
++# Attribute Yaml file
++When converting a YAML file to a binary file, the Tag Value types will be recorded in <bin_file_name>_attr.yml. Later, if the binary file needs to be converted back to a YAML file, this file will be referenced for the conversion (if the file does not exist, the values will be treated as hexadecimal by default).
 \ No newline at end of file
 diff --git a/run_zsg.bat b/run_zsg.bat
 new file mode 100644
@@ -272,16 +294,17 @@ index bad7beb..8b27c8c 100644
 \ No newline at end of file
 diff --git a/src/atmosic/CMakeLists.txt b/src/atmosic/CMakeLists.txt
 new file mode 100644
-index 0000000..4310d80
+index 0000000..a045a7e
 --- /dev/null
 +++ b/src/atmosic/CMakeLists.txt
-@@ -0,0 +1,13 @@
+@@ -0,0 +1,14 @@
 +# SPDX-FileCopyrightText: 2024 Atmosic
 +# SPDX-License-Identifier: Apache-2.0
 +
 +set(SOURCES
 +  atm_settingsreader.cpp
 +  atm_settingswriter.cpp
++  atm_log.cpp
 +  atm_tool.cpp
 +  atm_util.cpp
 +)
@@ -289,12 +312,51 @@ index 0000000..4310d80
 +add_library(atmosic STATIC ${SOURCES})
 +target_include_directories(atmosic PUBLIC include)
 +target_link_libraries(atmosic PUBLIC nvs settings yaml-cpp)
+diff --git a/src/atmosic/atm_log.cpp b/src/atmosic/atm_log.cpp
+new file mode 100644
+index 0000000..e49d793
+--- /dev/null
++++ b/src/atmosic/atm_log.cpp
+@@ -0,0 +1,33 @@
++/*
++ * SPDX-FileCopyrightText: 2025 Atmosic
++ * SPDX-License-Identifier: Apache-2.0
++*/
++
++#include <iostream>
++
++#include "atm_log.h"
++
++AtmLog::LogLevel  AtmLog::current_level = AtmLog::LOG_INFO;
++
++void AtmLog::log_debug(const std::string& msg)
++{
++    if (AtmLog::current_level >= AtmLog::LOG_DEBUG) {
++        std::cout << "[DEBUG] " << msg << std::endl;
++    }
++}
++
++void AtmLog::log_info(const std::string& msg) {
++    if (AtmLog::current_level >= AtmLog::LOG_INFO) {
++        std::cout << msg << std::endl;
++    }
++}
++
++void AtmLog::log_error(const std::string& msg) {
++    if (AtmLog::current_level >= AtmLog::LOG_ERROR) {
++        std::cerr << msg << std::endl;
++    }
++}
++
++void AtmLog::set_level(AtmLog::LogLevel level) {
++    AtmLog::current_level = level;
++}
 diff --git a/src/atmosic/atm_settingsreader.cpp b/src/atmosic/atm_settingsreader.cpp
 new file mode 100644
-index 0000000..4175abe
+index 0000000..021190a
 --- /dev/null
 +++ b/src/atmosic/atm_settingsreader.cpp
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,72 @@
 +/*
 + * SPDX-FileCopyrightText: 2024 Atmosic
 + * SPDX-License-Identifier: Apache-2.0
@@ -302,6 +364,7 @@ index 0000000..4175abe
 +
 +#include <cstring>
 +#include "atm_settingsreader.h"
++#include "atm_log.h"
 +
 +static std::string sub_tree_name;
 +
@@ -345,7 +408,7 @@ index 0000000..4175abe
 +	    num_read_bytes);
 +    std::vector<std::string>* settings = reinterpret_cast<std::vector<std::string> *>(param);
 +    settings->push_back(data);
-+    std::cout << "Read subtree data:" << data << std::endl;
++    AtmLog::log_debug("Read data:" + data);
 +
 +    return 0;
 +}
@@ -369,7 +432,7 @@ index 0000000..4175abe
 \ No newline at end of file
 diff --git a/src/atmosic/atm_settingswriter.cpp b/src/atmosic/atm_settingswriter.cpp
 new file mode 100644
-index 0000000..090514d
+index 0000000..df9becb
 --- /dev/null
 +++ b/src/atmosic/atm_settingswriter.cpp
 @@ -0,0 +1,123 @@
@@ -380,6 +443,7 @@ index 0000000..090514d
 +
 +#include "atm_settingswriter.h"
 +#include "atm_util.h"
++#include "atm_log.h"
 +
 +const size_t MAX_BYTE_ARRAY_SIZE = 1024;
 +
@@ -415,7 +479,7 @@ index 0000000..090514d
 +
 +        if (endptr[0] != '\0')
 +        {
-+            std::cout << "Malformed Value" << std::endl;
++            AtmLog::log_error("Malformed Value");
 +            hex_value.len = 0;
 +            return -EINVAL;
 +        }
@@ -468,8 +532,8 @@ index 0000000..090514d
 +    std::string key{get_key_from_string(m_data)};
 +    std::string value{ get_value_from_string(m_data)};
 +    if (!strncmp(value.data(), "0x", 2)) return -1;
-+    std::cout << "Store Setting \"" << key << "\" with value \""
-+        << value << "\"" << std::endl;
++    AtmLog::log_info("Store Setting \"" + key + "\" with value \"" + value + \
++        "\"");
 +    settings_save_one(key.c_str(), value.data(), value.size());
 +    return 0;
 +}
@@ -490,24 +554,24 @@ index 0000000..090514d
 +    char const *val = value.data();
 +    if (strncmp(val, "0x", 2)) return -1;
 +    if (str2bytearray_little_endian(val + 2, hex_value)) return -1;
-+    std::cout << "Store Setting \"" << key << "\" with value 0x"
-+        << AtmUtil::bytesToReversedHexUpper(hex_value.value, hex_value.len)
-+        << std::endl;
++    AtmLog::log_info("Store Setting \"" + key + "\" with value 0x" + \
++        AtmUtil::bytesToReversedHexUpper(hex_value.value, hex_value.len));
 +    settings_save_one(key.c_str(), hex_value.value, hex_value.len);
 +    return 0;
 +}
 diff --git a/src/atmosic/atm_tool.cpp b/src/atmosic/atm_tool.cpp
 new file mode 100644
-index 0000000..a8b9db9
+index 0000000..f7618cc
 --- /dev/null
 +++ b/src/atmosic/atm_tool.cpp
-@@ -0,0 +1,278 @@
+@@ -0,0 +1,377 @@
 +/*
 + * SPDX-FileCopyrightText: 2024-2025 Atmosic
 + * SPDX-License-Identifier: Apache-2.0
 +*/
 +
 +#include "atm_tool.h"
++#include "atm_log.h"
 +
 +std::vector<std::string> settings;
 +std::vector<std::string> attributes;
@@ -533,8 +597,10 @@ index 0000000..a8b9db9
 +    YAML::Node data = root[type];
 +    int data_num = 1;
 +
-+    std::cout << "********* Save " << ymlFilePath << " data *********"
-+        << std::endl;
++    if (type == "data"){
++        AtmLog::log_info("********* Save " + ymlFilePath + " data *********");
++    }
++
 +    for (size_t i = 0; i < settings.size(); ++i)
 +    {
 +        std::string setting_name = "", seting_value = "";
@@ -558,9 +624,9 @@ index 0000000..a8b9db9
 +            {
 +                data_node["tag_attr"] = "Hex";
 +            }
-+            std::cout << "Tag Name: " << data_node["tag_name"]
-+                << ", Tag Attribute: " << data_node["tag_attr"]
-+                << std::endl;
++            std::string tagAttr = data_node["tag_attr"].as<std::string>();
++            AtmLog::log_debug("Tag Name: " + setting_name + \
++                + ", Tag Attribute: " + tagAttr);
 +        }
 +        else
 +        {
@@ -574,8 +640,9 @@ index 0000000..a8b9db9
 +                data_node["tag_value"] = \
 +                    AtmUtil::reversedHexToAscii(seting_value);
 +            }
-+            std::cout << "Tag Name: " << data_node["tag_name"]
-+                << ", Tag Value: " << data_node["tag_value"] << std::endl;
++            std::string tagValue = data_node["tag_value"].as<std::string>();
++            AtmLog::log_info("Tag Name: " + setting_name + \
++                + ", Tag Value: " + tagValue);
 +        }
 +        std::string name = "data_" + std::to_string(data_num);
 +        data[name] = data_node;
@@ -593,9 +660,11 @@ index 0000000..a8b9db9
 +
 +    if (config[type])
 +    {
-+        YAML::Node const &data = config[type];
-+        std::cout << "********* Load " << ymlFilePath << " data *********"
-+            << std::endl;
++        YAML::Node const& data = config[type];
++        if (type == "data"){
++            AtmLog::log_info("********* Load " + ymlFilePath + \
++                " data *********");
++        }
 +        for (auto it = data.begin(); it != data.end(); ++it)
 +        {
 +            YAML::Node const& entry = it->second;
@@ -604,17 +673,17 @@ index 0000000..a8b9db9
 +                std::string tagName = entry["tag_name"].as<std::string>();
 +                if (type == "attr" && entry["tag_attr"])
 +                {
-+                    std::string  tagAttr = entry["tag_attr"].as<std::string>();
-+                    std::cout << "Tag Name: " << tagName << ", Tag Attribute: "
-+                        << tagAttr << std::endl;
++                    std::string tagAttr = entry["tag_attr"].as<std::string>();
++                    AtmLog::log_debug("Tag Name: " + tagName + \
++                        ", Tag Attribute: " + tagAttr);
 +                    attributes.push_back(tagName + ":" + tagAttr);
 +                    data_num += 1;
 +                }
 +                else if (type == "data" && entry["tag_value"])
 +                {
 +                    std::string tagValue = entry["tag_value"].as<std::string>();
-+                    std::cout << "Tag Name: " << tagName << ", Tag Value: "
-+                        << tagValue << std::endl;
++                    AtmLog::log_info("Tag Name: " + tagName + \
++                        ", Tag Value: " + tagValue);
 +                    settings.push_back(tagName + ":" + tagValue);
 +                    data_num += 1;
 +                }
@@ -623,19 +692,111 @@ index 0000000..a8b9db9
 +    }
 +    else
 +    {
-+        std::cout << "No 'data' section found in the YAML file." << std::endl;
++        AtmLog::log_error("No 'data' section found in the YAML file");
 +    }
 +    return data_num;
++}
++
++int show_bin_info(int argc, char* argv[])
++{
++    if (argc != 7)
++    {
++        AtmLog::log_error("Usage: " + std::string(argv[0]) + " " + \
++            std::string(argv[1]) + " <bin_file> <FACTORY | SETTINGS> " \
++            "<partition_sector_size> <partition_size> " \
++            "<show_pretty | show_verbose>");
++        return 1;
++    }
++
++    int rc = 0;
++    std::string bin_file = argv[2];
++    std::string sub_tree_name = argv[3];
++    uint16_t part_sector_size = AtmUtil::str2uint16(argv[4]);
++    uint16_t part_size = AtmUtil::str2uint16(argv[5]);
++    std::string show_type = argv[6];
++
++    if (!fs::exists(bin_file))
++    {
++        AtmLog::log_error("Can't find " + bin_file + " file");
++        return 1;
++    }
++
++    std::filesystem::path path(bin_file);
++    std::string attr_file = (path.parent_path() / (path.stem().string() + \
++        "_attr.yml")).string();
++    attributes.clear();
++    if (fs::exists(attr_file))
++    {
++        parser_yaml(attr_file, "attr");
++    }
++
++    settings.clear();
++    AtmLog::log_debug("********* Read data from " + bin_file + " *********");
++    rc = settings_subsys_init(part_sector_size, part_size, bin_file.c_str(),
++                              true);
++    if (rc)
++    {
++        AtmLog::log_error("Settings subsys init failed");
++        return 1;
++    }
++    rc = SettingsReader::read(sub_tree_name, settings);
++    if (!settings.empty())
++    {
++        std::reverse(settings.begin(), settings.end());
++        for (size_t i = 0; i < settings.size(); ++i)
++        {
++            std::ostringstream oss;
++            oss << std::setw(3) << std::setfill('0') << (i + 1);
++            std::string setting_index = "@" + oss.str();
++            std::string setting_name = "", setting_value = "",
++                convert_value = "", convert_name = "";
++
++            AtmUtil::splitKeyValue(settings[i], setting_name, setting_value);
++            if (show_type == "show_pretty")
++            {
++                std::string attr_value = "Hex";
++                if (!attributes.empty())
++                {
++                    attr_value = find_tag_attr(setting_name);
++                }
++
++                if (attr_value == "Hex")
++                {
++                    convert_value = "0x" + \
++                        AtmUtil::toUpperCaseHexString(setting_value);
++                }
++                else if (attr_value == "String")
++                {
++                    convert_value = \
++                        AtmUtil::reversedHexToAscii(setting_value);
++                }
++                AtmLog::log_info(setting_index + " " + setting_name + " " + \
++                    convert_value);
++            }
++            else if (show_type == "show_verbose")
++            {
++                convert_name = AtmUtil::toHexString(setting_name);
++                convert_value = AtmUtil::formatHexString(setting_value);
++                AtmLog::log_info(setting_index + " " + convert_name + "  " + \
++                    convert_value);
++            }
++        }
++    }
++    else
++    {
++        AtmLog::log_error("nvs data is empty");
++        return 1;
++    }
++    return 0;
 +}
 +
 +int bin_to_yaml(int argc, char* argv[])
 +{
 +    if (argc != 7)
 +    {
-+        std::cout << "Usage: " << argv[0] << " " << argv[1]
-+            << " <bin_file> <FACTORY | SETTINGS> <partition_sector_size>"
-+            << " <partition_size> <yaml_output_file>"
-+            << std::endl;
++        AtmLog::log_error("Usage: " + std::string(argv[0]) + " " + \
++            std::string(argv[1]) + " <bin_file> <FACTORY | SETTINGS> " + \
++            "<partition_sector_size> <partition_size> <yaml_output_file>");
 +        return 1;
 +    }
 +
@@ -648,30 +809,26 @@ index 0000000..a8b9db9
 +
 +    if (!fs::exists(bin_file))
 +    {
-+        std::cout << "Can't find " << bin_file << " file" << std::endl;
++        AtmLog::log_error("Can't find " + bin_file + " file");
 +        return 1;
 +    }
 +
 +    std::filesystem::path path(bin_file);
 +    std::string attr_file = (path.parent_path() / (path.stem().string() + \
-+        "_attr.yaml")).string();
-+    if (!fs::exists(attr_file))
++        "_attr.yml")).string();
++    attributes.clear();
++    if (fs::exists(attr_file))
 +    {
-+        std::cout << "Can't find " << attr_file << " file" << std::endl;
-+    }
-+    else{
-+        attributes.clear();
 +        parser_yaml(attr_file, "attr");
 +    }
 +
 +    settings.clear();
-+    std::cout << "********* Read data from " << bin_file << " *********"
-+        << std::endl;
++    AtmLog::log_debug("********* Read data from " + bin_file + " *********");
 +    rc = settings_subsys_init(part_sector_size, part_size, bin_file.c_str(),
 +                              true);
 +    if (rc)
 +    {
-+        std::cout << "Settings subsys init failed" << std::endl;
++        AtmLog::log_error("Settings subsys init failed");
 +        return 1;
 +    }
 +    rc = SettingsReader::read(sub_tree_name, settings);
@@ -682,7 +839,7 @@ index 0000000..a8b9db9
 +    }
 +    else
 +    {
-+        std::cout << "nvs data is empty." << std::endl;
++        AtmLog::log_error("nvs data is empty");
 +        return 1;
 +    }
 +    return 0;
@@ -692,10 +849,9 @@ index 0000000..a8b9db9
 +{
 +    if (argc != 6)
 +    {
-+        std::cout << "Usage: " << argv[0] << " " << argv[1]
-+                  << " <yaml_file> <partition_sector_size>"
-+                  << " <partition_size> <bin_output_file>"
-+                  << std::endl;
++        AtmLog::log_error("Usage: " + std::string(argv[0]) + " " + \
++            std::string(argv[1]) + " <yaml_file> <partition_sector_size>" + \
++            " <partition_size> <bin_output_file>");
 +        return 1;
 +    }
 +    std::string yaml_file = argv[2];
@@ -705,20 +861,19 @@ index 0000000..a8b9db9
 +
 +    if (!fs::exists(yaml_file))
 +    {
-+        std::cout << "Can't find " << yaml_file << " yaml file" << std::endl;
++        AtmLog::log_error("Can't find " + yaml_file + " yaml file");
 +        return 1;
 +    }
 +
 +    std::filesystem::path path(bin_file);
 +    std::string attr_file = (path.parent_path() / (path.stem().string() + \
-+        "_attr.yaml")).string();
++        "_attr.yml")).string();
 +    if (fs::exists(attr_file))
 +    {
 +        std::filesystem::remove(attr_file);
 +    }
 +
 +    settings.clear();
-+    std::cout << "Load [" << yaml_file << "]" << std::endl;
 +    int data_num = parser_yaml(yaml_file, "data");
 +    if (!settings.empty())
 +    {
@@ -730,8 +885,7 @@ index 0000000..a8b9db9
 +            SettingsWriterFactory::create(str);
 +            writer->write();
 +        };
-+        std::cout << "********* Generate " << bin_file << " data *********"
-+            << std::endl;
++        AtmLog::log_info("********* Generate " + bin_file + " data *********");
 +        settings_subsys_init(part_sector_size, part_size, bin_file.c_str(),
 +            false);
 +        std::for_each(std::begin(settings), std::end(settings),
@@ -739,7 +893,7 @@ index 0000000..a8b9db9
 +    }
 +    else
 +    {
-+        std::cout << "yaml data is empty." << std::endl;
++        AtmLog::log_error("yaml data is empty");
 +        return 1;
 +    }
 +    return 0;
@@ -752,7 +906,8 @@ index 0000000..a8b9db9
 +        << "  -h, --help         Show this help message\n"
 +        << "\nInput/Output:\n"
 +        << "  read <bin_file> <FACTORY | SETTINGS> <partition_sector_size> <partition_size> <yaml_output_file>\n    Read NVS information from a bin file and save it to a YAML file\n\n"
-+        << "  write <yaml_file> <partition_sector_size> <partition_size> <bin_output_file>\n    To generate binary string data to the settings storage area\n";
++        << "  write <yaml_file> <partition_sector_size> <partition_size> <bin_output_file>\n    To generate binary string data to the settings storage area\n\n"
++        << "  show <bin_file> <FACTORY | SETTINGS> <partition_sector_size> <partition_size> <show_pretty | show_verbose>\n    Display current binary file information\n\n";
 +}
 +
 +int AtmTool::run_tool(int argc, char *argv[])
@@ -762,6 +917,7 @@ index 0000000..a8b9db9
 +        return 1;
 +    }
 +
++    AtmLog::set_level(AtmLog::LOG_INFO);
 +    if (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0)
 +    {
 +        print_usage();
@@ -774,19 +930,25 @@ index 0000000..a8b9db9
 +    {
 +        return bin_to_yaml(argc, argv);
 +    }
++    else if (strcmp(argv[1], "show") == 0)
++    {
++        return show_bin_info(argc, argv);
++    }
 +    else
 +    {
-+        std::cout << "Unknow action [" << argv[1] << "]";
++        std::string arg = argv[1];
++        AtmLog::log_error("Unknow action [" + arg + "]");
 +        return 1;
 +    }
++    return 0;
 +}
 \ No newline at end of file
 diff --git a/src/atmosic/atm_util.cpp b/src/atmosic/atm_util.cpp
 new file mode 100644
-index 0000000..c1d9ed2
+index 0000000..abc0e64
 --- /dev/null
 +++ b/src/atmosic/atm_util.cpp
-@@ -0,0 +1,79 @@
+@@ -0,0 +1,111 @@
 +/*
 + * SPDX-FileCopyrightText: 2024-2025 Atmosic
 + * SPDX-License-Identifier: Apache-2.0
@@ -799,6 +961,22 @@ index 0000000..c1d9ed2
 +    std::string result = hexString;
 +    std::transform(result.begin(), result.end(), result.begin(), ::toupper);
 +    return result;
++}
++
++std::string AtmUtil::formatHexString(const std::string& hexStr)
++{
++    std::ostringstream oss;
++    size_t len = hexStr.length();
++
++    std::string paddedHexStr = (len % 2 != 0) ? "0" + hexStr : hexStr;
++    len = paddedHexStr.length();
++
++    for (size_t i = len; i >= 2; i -= 2) {
++        oss << paddedHexStr.substr(i - 2, 2);
++        if (i > 2) oss << " ";
++    }
++
++    return oss.str();
 +}
 +
 +std::string AtmUtil::bytesToReversedHexUpper(const uint8_t* data,
@@ -838,6 +1016,22 @@ index 0000000..c1d9ed2
 +    return result;
 +}
 +
++std::string AtmUtil::toHexString(const std::string& input)
++{
++    std::ostringstream oss;
++
++    for (char c : input) {
++        oss << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
++            << static_cast<int>(static_cast<unsigned char>(c)) << " ";
++    }
++
++    std::string result = oss.str();
++    if (!result.empty()) {
++        result.pop_back();  // Remove the last space
++    }
++    return result;
++}
++
 +size_t AtmUtil::str2size(std::string str)
 +{
 +    std::stringstream stream;
@@ -866,6 +1060,36 @@ index 0000000..c1d9ed2
 +        value = line.substr(pos + 1);
 +    }
 +}
+\ No newline at end of file
+diff --git a/src/atmosic/include/atm_log.h b/src/atmosic/include/atm_log.h
+new file mode 100644
+index 0000000..e464f1b
+--- /dev/null
++++ b/src/atmosic/include/atm_log.h
+@@ -0,0 +1,23 @@
++/*
++ * SPDX-FileCopyrightText: 2025 Atmosic
++ * SPDX-License-Identifier: Apache-2.0
++ */
++
++#include <string>
++
++class AtmLog
++{
++public:
++    enum LogLevel  {
++        LOG_NONE = 0,
++        LOG_ERROR = 1,
++        LOG_INFO = 2,
++        LOG_DEBUG = 3
++    };
++
++    static LogLevel  current_level;
++    static void log_debug(const std::string& msg);
++    static void log_info(const std::string& msg);
++    static void log_error(const std::string& msg);
++    static void set_level(LogLevel level);
++};
 \ No newline at end of file
 diff --git a/src/atmosic/include/atm_settingsreader.h b/src/atmosic/include/atm_settingsreader.h
 new file mode 100644
@@ -990,10 +1214,10 @@ index 0000000..8c24b3e
 \ No newline at end of file
 diff --git a/src/atmosic/include/atm_util.h b/src/atmosic/include/atm_util.h
 new file mode 100644
-index 0000000..963fe0c
+index 0000000..a322591
 --- /dev/null
 +++ b/src/atmosic/include/atm_util.h
-@@ -0,0 +1,25 @@
+@@ -0,0 +1,27 @@
 +/*
 + * SPDX-FileCopyrightText: 2024-2025 Atmosic
 + * SPDX-License-Identifier: Apache-2.0
@@ -1018,6 +1242,8 @@ index 0000000..963fe0c
 +    static std::string bytesToReversedHexUpper(const uint8_t* data,
 +        size_t length);
 +    static std::string reversedHexToAscii(std::string& hexStr);
++    static std::string formatHexString(const std::string& hexStr);
++    static std::string toHexString(const std::string& input);
 +};
 \ No newline at end of file
 diff --git a/src/main.cpp b/src/main.cpp
