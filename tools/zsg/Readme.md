@@ -51,33 +51,51 @@ This Software is licensed under [BSD-2-Clause Plus Patent License](https://spdx.
 =============== For Atmosic special application ===============
 
 Previously, configuring through Boost was difficult to maintain with large amounts of data, so the data source has been standardized to the YAML file format.
+The maximum length of the Tag Value in the YAML file currently supports up to 1024 bytes.
 Set 'ATMOSIC_ZSG' in CMakeLists.txt to ON to enable this feature.
 
 # Execution example
 1. To generate binary string data to the settings storage area(Data read from YAML file):
 ```
-Usage: zsg.exe write <yaml_file> <erase_block_size > <partition_address> <partition_size> <output_file>
+Usage: zsg.exe write [yaml_file] [partition_sector_size] [partition_size] [bin_output_file]
 ```
 
 - Windows example:
 $ cd build
-§ src\\zsg.exe write ..\\factory.yml 1024 0x0 2048 ..\\nvs.bin
+§ src\\zsg.exe write ..\\factory.yml 1024 2048 ..\\factory.bin
 
 - Linux example:
 $ cd build
-§ src/zsg write ../factory.yml 1024 0x0 2048 ../nvs.bin
+§ src/zsg write ../factory.yml 1024 2048 ../factory.bin
 
-2. Read NVS information from a bin file and save it to a YAML file(Data read from NVS file.
+2. Read NVS information from a bin file and save it to a YAML file(Data read from NVS file).
 ```
-Usage: zsg.exe read <yaml_file> <subtree_name> <erase_block_size > <partition_address> <partition_size> <output_file>
+Usage: zsg.exe read [bin_file] [FACTORY | SETTINGS] [partition_sector_size] [partition_size] [yaml_output_file]
 ```
 - Windows example:
 $ cd build
-§ src\\zsg.exe read ..\\nvs.bin FACTORY 1024 0x0 2048 ..\\test.yml
+§ src\\zsg.exe read ..\\factory.bin FACTORY 1024 2048 ..\\factory.yml
 
 - Linux example:
 $ cd build
-§ src/zsg read ../nvs.bin 1024 0x0 2048 ../test.yml
+§ src/zsg read ../factory.bin FACTORY 1024 2048 ../factory.yml
+
+3. Show NVS information from a bin file(Data read from NVS file).
+```
+Usage: zsg.exe show [bin_file] [FACTORY | SETTINGS] [partition_sector_size] [partition_size] [show_pretty | show_verbose]
+```
+- Windows example:
+$ cd build
+§ src\\zsg.exe show ..\\factory.bin FACTORY 1024 2048 show_pretty
+§ src\\zsg.exe show ..\\factory.bin FACTORY 1024 2048 show_verbose
+
+- Linux example:
+$ cd build
+§ src/zsg show ../factory.bin FACTORY 1024 2048 show_pretty
+§ src/zsg show ../factory.bin FACTORY 1024 2048 show_verbose
 
 # Yaml file format
 Please refer to the 'sample.yml' in the directory
+
+# Attribute Yaml file
+When converting a YAML file to a binary file, the Tag Value types will be recorded in <bin_file_name>_attr.yml. Later, if the binary file needs to be converted back to a YAML file, this file will be referenced for the conversion (if the file does not exist, the values will be treated as hexadecimal by default).
