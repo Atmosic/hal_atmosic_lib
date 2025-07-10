@@ -6,9 +6,9 @@ are available in the Git repository at:
 
   /prj/digital/db/contrib/zephyr-settings-generator.git atmosic_dev
 
-for you to fetch changes up to 262986ebe5539ef9fb016dce77bb6ff7b18b58cc:
+for you to fetch changes up to 1b42fc340673ed3ce811a88677de93eddab7d3be:
 
-  [SOFTWARE-4634] Offline tool for reading and populating Zephyr settings database (2025-05-07 19:32:47 -0700)
+  [SOFTWARE-8520] Synchronize and correct the description. (2025-05-21 18:05:31 -0700)
 
 ----------------------------------------------------------------
 Hormoz Zarnani (1):
@@ -16,6 +16,11 @@ Hormoz Zarnani (1):
 
 Tiffany (1):
       [SOFTWARE-6092][Zephyr] Integrate Zephyr settings with the setting_generate sample code with CMAKE build.
+
+Tiffany Hsieh (3):
+      [SOFTWARE-8484] kern-ncsim/zen-ncsim2: GLIBC_2.32 and GLIBCXX_3.4.29 is not found
+      [SOFTWARE-8484] kern-ncsim/zen-ncsim2: GLIBC_2.32 and GLIBCXX_3.4.29 is not found
+      [SOFTWARE-8520] Synchronize and correct the description.
 
 thsieh (12):
       [SOFTWARE-6092][Zephyr] Resolved the key name length bug
@@ -36,7 +41,7 @@ thsieh (12):
  run_zsg.bat                                  |  43 +++
  sample.yml                                   |   4 +
  src/CMakeLists.txt                           |  14 +-
- src/atmosic/CMakeLists.txt                   |  14 +
+ src/atmosic/CMakeLists.txt                   |  18 ++
  src/atmosic/atm_log.cpp                      |  33 +++
  src/atmosic/atm_settingsreader.cpp           |  72 +++++
  src/atmosic/atm_settingswriter.cpp           | 123 +++++++++
@@ -60,7 +65,7 @@ thsieh (12):
  src/settings/settings_priv.h                 | 132 ----------
  src/settings/settings_store.c                |   2 +
  src/util/util.h                              |  12 +-
- 29 files changed, 1202 insertions(+), 182 deletions(-)
+ 29 files changed, 1206 insertions(+), 182 deletions(-)
  create mode 100644 run_zsg.bat
  create mode 100644 sample.yml
  create mode 100644 src/atmosic/CMakeLists.txt
@@ -132,7 +137,7 @@ index a924bc8..ba67236 100644
  set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
  include(MunkeiVersionFromGit)
 diff --git a/Readme.md b/Readme.md
-index a01c989..3d0fb8d 100644
+index a01c989..4f44ca8 100644
 --- a/Readme.md
 +++ b/Readme.md
 @@ -26,6 +26,7 @@ For more information on the Zephyr settings subsystem see: https://docs.zephyrpr
@@ -157,42 +162,42 @@ index a01c989..3d0fb8d 100644
 +# Execution example
 +1. To generate binary string data to the settings storage area(Data read from YAML file):
 +```
-+Usage: zsg.exe write <yaml_file> <partition_sector_size> <partition_size> <bin_output_file>
++Usage: zsg.exe write [yaml_file] [partition_sector_size] [partition_size] [bin_output_file]
 +```
 +
 +- Windows example:
 +$ cd build
-+§ src\\zsg.exe write ..\\factory.yml 1024 2048 ..\\nvs.bin
++§ src\\zsg.exe write ..\\factory.yml 1024 2048 ..\\factory.bin
 +
 +- Linux example:
 +$ cd build
-+§ src/zsg write ../factory.yml 1024 2048 ../nvs.bin
++§ src/zsg write ../factory.yml 1024 2048 ../factory.bin
 +
 +2. Read NVS information from a bin file and save it to a YAML file(Data read from NVS file).
 +```
-+Usage: zsg.exe read <bin_file> <FACTORY | SETTINGS> <partition_sector_size> <partition_size> <yaml_output_file>
++Usage: zsg.exe read [bin_file] [FACTORY | SETTINGS] [partition_sector_size] [partition_size] [yaml_output_file]
 +```
 +- Windows example:
 +$ cd build
-+§ src\\zsg.exe read ..\\nvs.bin FACTORY 1024 2048 ..\\test.yml
++§ src\\zsg.exe read ..\\factory.bin FACTORY 1024 2048 ..\\factory.yml
 +
 +- Linux example:
 +$ cd build
-+§ src/zsg read ../nvs.bin FACTORY 1024 2048 ../test.yml
++§ src/zsg read ../factory.bin FACTORY 1024 2048 ../factory.yml
 +
 +3. Show NVS information from a bin file(Data read from NVS file).
 +```
-+Usage: zsg.exe show <bin_file> <FACTORY | SETTINGS> <partition_sector_size> <partition_size> <show_pretty | show_verbose>
++Usage: zsg.exe show [bin_file] [FACTORY | SETTINGS] [partition_sector_size] [partition_size] [show_pretty | show_verbose]
 +```
 +- Windows example:
 +$ cd build
-+§ src\\zsg.exe show ..\\nvs.bin FACTORY 1024 2048 show_pretty
-+§ src\\zsg.exe show ..\\nvs.bin FACTORY 1024 2048 show_verbose
++§ src\\zsg.exe show ..\\factory.bin FACTORY 1024 2048 show_pretty
++§ src\\zsg.exe show ..\\factory.bin FACTORY 1024 2048 show_verbose
 +
 +- Linux example:
 +$ cd build
-+§ src/zsg show ../nvs.bin FACTORY 1024 2048 show_pretty
-+§ src/zsg show ../nvs.bin FACTORY 1024 2048 show_verbose
++§ src/zsg show ../factory.bin FACTORY 1024 2048 show_pretty
++§ src/zsg show ../factory.bin FACTORY 1024 2048 show_verbose
 +
 +# Yaml file format
 +Please refer to the 'sample.yml' in the directory
@@ -294,11 +299,11 @@ index bad7beb..8b27c8c 100644
 \ No newline at end of file
 diff --git a/src/atmosic/CMakeLists.txt b/src/atmosic/CMakeLists.txt
 new file mode 100644
-index 0000000..a045a7e
+index 0000000..d9e23c8
 --- /dev/null
 +++ b/src/atmosic/CMakeLists.txt
-@@ -0,0 +1,14 @@
-+# SPDX-FileCopyrightText: 2024 Atmosic
+@@ -0,0 +1,18 @@
++# SPDX-FileCopyrightText: 2024-2025 Atmosic
 +# SPDX-License-Identifier: Apache-2.0
 +
 +set(SOURCES
@@ -312,6 +317,11 @@ index 0000000..a045a7e
 +add_library(atmosic STATIC ${SOURCES})
 +target_include_directories(atmosic PUBLIC include)
 +target_link_libraries(atmosic PUBLIC nvs settings yaml-cpp)
++
++if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
++    target_link_libraries(atmosic PUBLIC stdc++fs)
++endif()
+\ No newline at end of file
 diff --git a/src/atmosic/atm_log.cpp b/src/atmosic/atm_log.cpp
 new file mode 100644
 index 0000000..e49d793
@@ -561,7 +571,7 @@ index 0000000..df9becb
 +}
 diff --git a/src/atmosic/atm_tool.cpp b/src/atmosic/atm_tool.cpp
 new file mode 100644
-index 0000000..f7618cc
+index 0000000..30705f1
 --- /dev/null
 +++ b/src/atmosic/atm_tool.cpp
 @@ -0,0 +1,377 @@
@@ -702,9 +712,9 @@ index 0000000..f7618cc
 +    if (argc != 7)
 +    {
 +        AtmLog::log_error("Usage: " + std::string(argv[0]) + " " + \
-+            std::string(argv[1]) + " <bin_file> <FACTORY | SETTINGS> " \
-+            "<partition_sector_size> <partition_size> " \
-+            "<show_pretty | show_verbose>");
++            std::string(argv[1]) + " [bin_file] [FACTORY | SETTINGS] " \
++            "[partition_sector_size] [partition_size] " \
++            "[show_pretty | show_verbose]");
 +        return 1;
 +    }
 +
@@ -795,8 +805,8 @@ index 0000000..f7618cc
 +    if (argc != 7)
 +    {
 +        AtmLog::log_error("Usage: " + std::string(argv[0]) + " " + \
-+            std::string(argv[1]) + " <bin_file> <FACTORY | SETTINGS> " + \
-+            "<partition_sector_size> <partition_size> <yaml_output_file>");
++            std::string(argv[1]) + " [bin_file] [FACTORY | SETTINGS] " + \
++            "[partition_sector_size] [partition_size] [yaml_output_file]");
 +        return 1;
 +    }
 +
@@ -850,8 +860,8 @@ index 0000000..f7618cc
 +    if (argc != 6)
 +    {
 +        AtmLog::log_error("Usage: " + std::string(argv[0]) + " " + \
-+            std::string(argv[1]) + " <yaml_file> <partition_sector_size>" + \
-+            " <partition_size> <bin_output_file>");
++            std::string(argv[1]) + " [yaml_file] [partition_sector_size]" + \
++            " [partition_size] [bin_output_file]");
 +        return 1;
 +    }
 +    std::string yaml_file = argv[2];
@@ -901,13 +911,13 @@ index 0000000..f7618cc
 +
 +void print_usage()
 +{
-+    std::cout << "Usage: zsg.exe [options]\n\n"
++    std::cout << "Usage: zsg [options]\n\n"
 +        << "General Options:\n"
 +        << "  -h, --help         Show this help message\n"
 +        << "\nInput/Output:\n"
-+        << "  read <bin_file> <FACTORY | SETTINGS> <partition_sector_size> <partition_size> <yaml_output_file>\n    Read NVS information from a bin file and save it to a YAML file\n\n"
-+        << "  write <yaml_file> <partition_sector_size> <partition_size> <bin_output_file>\n    To generate binary string data to the settings storage area\n\n"
-+        << "  show <bin_file> <FACTORY | SETTINGS> <partition_sector_size> <partition_size> <show_pretty | show_verbose>\n    Display current binary file information\n\n";
++        << "  read [bin_file] [FACTORY | SETTINGS] [partition_sector_size] [partition_size] [yaml_output_file]\n    Read NVS information from a bin file and save it to a YAML file\n\n"
++        << "  write [yaml_file] [partition_sector_size] [partition_size] [bin_output_file]\n    To generate binary string data to the settings storage area\n\n"
++        << "  show [bin_file] [FACTORY | SETTINGS] [partition_sector_size] [partition_size] [show_pretty | show_verbose]\n    Display current binary file information\n\n";
 +}
 +
 +int AtmTool::run_tool(int argc, char *argv[])
