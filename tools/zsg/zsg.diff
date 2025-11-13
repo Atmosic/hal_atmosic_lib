@@ -6,9 +6,9 @@ are available in the Git repository at:
 
   /prj/digital/db/contrib/zephyr-settings-generator.git atmosic_dev
 
-for you to fetch changes up to 1b42fc340673ed3ce811a88677de93eddab7d3be:
+for you to fetch changes up to c54e51c0a79451337ae053c20deecabf6833fb8d:
 
-  [SOFTWARE-8520] Synchronize and correct the description. (2025-05-21 18:05:31 -0700)
+  [SOFTWARE-9519]Fix label and agent used to build zsg (2025-10-31 02:24:16 -0700)
 
 ----------------------------------------------------------------
 Hormoz Zarnani (1):
@@ -17,10 +17,15 @@ Hormoz Zarnani (1):
 Tiffany (1):
       [SOFTWARE-6092][Zephyr] Integrate Zephyr settings with the setting_generate sample code with CMAKE build.
 
-Tiffany Hsieh (3):
+Tiffany Hsieh (8):
       [SOFTWARE-8484] kern-ncsim/zen-ncsim2: GLIBC_2.32 and GLIBCXX_3.4.29 is not found
       [SOFTWARE-8484] kern-ncsim/zen-ncsim2: GLIBC_2.32 and GLIBCXX_3.4.29 is not found
       [SOFTWARE-8520] Synchronize and correct the description.
+      [SOFTWARE-8670][ZSG] Added a check mechanism when sector_size/partition_size is 0.
+      [SOFTWARE-9421][ZSG] Add the feature to NVS ATE information in scan results.
+      [SOFTWARE-9421] [ZSG] Add the feature to NVS ATE information in scan results.
+      [SOFTWARE-9519]Fix label and agent used to build zsg
+      [SOFTWARE-9519]Fix label and agent used to build zsg
 
 thsieh (12):
       [SOFTWARE-6092][Zephyr] Resolved the key name length bug
@@ -36,36 +41,50 @@ thsieh (12):
       [SOFTWARE-8363][ZSG Tool] Remove unused 'partition_address' parameter.
       [SOFTWARE-4634] Offline tool for reading and populating Zephyr settings database
 
- CMakeLists.txt                               |  41 ++-
- Readme.md                                    |  53 ++++
- run_zsg.bat                                  |  43 +++
+ CMakeLists.txt                               |  87 +++-
+ Makefile                                     |  64 +++
+ Readme.md                                    |  48 --
+ build_static.bat                             | 142 ++++++
+ build_static.sh                              |  74 ++++
+ docs/BUILD.md                                | 335 ++++++++++++++
+ docs/README.md                               |  76 ++++
+ docs/USAGE.md                                | 239 ++++++++++
+ run_zsg.bat                                  |  43 ++
  sample.yml                                   |   4 +
  src/CMakeLists.txt                           |  14 +-
- src/atmosic/CMakeLists.txt                   |  18 ++
- src/atmosic/atm_log.cpp                      |  33 +++
- src/atmosic/atm_settingsreader.cpp           |  72 +++++
- src/atmosic/atm_settingswriter.cpp           | 123 +++++++++
- src/atmosic/atm_tool.cpp                     | 377 +++++++++++++++++++++++++++
- src/atmosic/atm_util.cpp                     | 111 ++++++++
- src/atmosic/include/atm_log.h                |  23 ++
- src/atmosic/include/atm_settingsreader.h     |  29 +++
- src/atmosic/include/atm_settingswriter.h     |  49 ++++
- src/atmosic/include/atm_tool.h               |  22 ++
+ src/atmosic/CMakeLists.txt                   |  24 +
+ src/atmosic/atm_log.cpp                      |  33 ++
+ src/atmosic/atm_settingsreader.cpp           |  72 +++
+ src/atmosic/atm_settingswriter.cpp           | 123 ++++++
+ src/atmosic/atm_tool.cpp                     | 628 +++++++++++++++++++++++++++
+ src/atmosic/atm_util.cpp                     | 111 +++++
+ src/atmosic/include/atm_log.h                |  23 +
+ src/atmosic/include/atm_settingsreader.h     |  29 ++
+ src/atmosic/include/atm_settingswriter.h     |  49 +++
+ src/atmosic/include/atm_tool.h               |  24 +
  src/atmosic/include/atm_util.h               |  27 ++
  src/main.cpp                                 |  17 +-
- src/nvs/flash.cpp                            |  41 ++-
+ src/nvs/flash.cpp                            |  41 +-
  src/nvs/flash.h                              |   2 +
  src/nvs/nvs.c                                |  13 +-
  src/nvs/nvs.h                                |   5 +
- src/settings/include/settings.h              |  19 ++
+ src/nvs/nvs_priv.h                           |  19 +
+ src/settings/include/settings.h              |  19 +
  src/settings/include/settings/settings_nvs.h |   7 +-
  src/settings/settings.c                      |  24 +-
- src/settings/settings_init.c                 |  22 ++
- src/settings/settings_nvs.c                  |  53 ++++
- src/settings/settings_priv.h                 | 132 ----------
+ src/settings/settings_init.c                 |  22 +
+ src/settings/settings_nvs.c                  |  53 +++
+ src/settings/settings_priv.h                 | 132 ------
  src/settings/settings_store.c                |   2 +
  src/util/util.h                              |  12 +-
- 29 files changed, 1206 insertions(+), 182 deletions(-)
+ 36 files changed, 2407 insertions(+), 230 deletions(-)
+ create mode 100644 Makefile
+ delete mode 100644 Readme.md
+ create mode 100644 build_static.bat
+ create mode 100755 build_static.sh
+ create mode 100644 docs/BUILD.md
+ create mode 100644 docs/README.md
+ create mode 100644 docs/USAGE.md
  create mode 100644 run_zsg.bat
  create mode 100644 sample.yml
  create mode 100644 src/atmosic/CMakeLists.txt
@@ -82,10 +101,10 @@ thsieh (12):
  delete mode 100644 src/settings/settings_priv.h
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index a924bc8..ba67236 100644
+index a924bc8..714b9cf 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -2,15 +2,44 @@
+@@ -2,15 +2,90 @@
  # SPDX-License-Identifier: BSD-2-Clause-Patent
  
  cmake_minimum_required(VERSION 3.13)
@@ -101,12 +120,53 @@ index a924bc8..ba67236 100644
 -set(Boost_USE_MULTITHREADED ON)  
 -set(Boost_USE_STATIC_RUNTIME OFF) 
 -find_package(Boost 1.67.0 COMPONENTS program_options REQUIRED)
-+# Set compiler flag
++# Option to enable static linking
++option(BUILD_STATIC "Build statically linked binary" OFF)
++
++# Set compiler flags for Windows (MSVC)
 +if (WIN32)
-+set(CMAKE_CXX_FLAGS_DEBUG "/MTd")
-+set(CMAKE_CXX_FLAGS_RELEASE "/MT")
-+set(CMAKE_C_FLAGS_DEBUG "/MTd")
-+set(CMAKE_C_FLAGS_RELEASE "/MT")
++    if(BUILD_STATIC OR CMAKE_BUILD_TYPE STREQUAL "Release")
++        # Static linking of C/C++ runtime (/MT)
++        set(CMAKE_CXX_FLAGS_DEBUG "/MTd /Zi /Od")
++        set(CMAKE_CXX_FLAGS_RELEASE "/MT /O2 /DNDEBUG")
++        set(CMAKE_C_FLAGS_DEBUG "/MTd /Zi /Od")
++        set(CMAKE_C_FLAGS_RELEASE "/MT /O2 /DNDEBUG")
++        message(STATUS "Windows: Using static C/C++ runtime (/MT)")
++    else()
++        # Dynamic linking of C/C++ runtime (/MD)
++        set(CMAKE_CXX_FLAGS_DEBUG "/MDd /Zi /Od")
++        set(CMAKE_CXX_FLAGS_RELEASE "/MD /O2 /DNDEBUG")
++        set(CMAKE_C_FLAGS_DEBUG "/MDd /Zi /Od")
++        set(CMAKE_C_FLAGS_RELEASE "/MD /O2 /DNDEBUG")
++        message(STATUS "Windows: Using dynamic C/C++ runtime (/MD)")
++    endif()
++
++    # Additional Windows-specific settings for static builds
++    if(BUILD_STATIC)
++        # Prefer static libraries
++        set(CMAKE_FIND_LIBRARY_SUFFIXES ".lib" ".a")
++        # Link statically against Windows libraries where possible
++        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} /INCREMENTAL:NO")
++    endif()
++endif()
++
++# Configure static linking for Linux (not macOS - macOS doesn't support -static flag)
++if(BUILD_STATIC AND UNIX AND NOT APPLE)
++    message(STATUS "Linux: Building statically linked binary")
++    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
++    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
++    set(CMAKE_SHARED_LIBRARY_LINK_C_FLAGS "")
++    set(CMAKE_SHARED_LIBRARY_LINK_CXX_FLAGS "")
++elseif(BUILD_STATIC AND APPLE)
++    message(STATUS "macOS: Building with static libraries where possible")
++    message(STATUS "Note: macOS does not support full static linking")
++    # Prefer static libraries but don't use -static flag
++    set(CMAKE_FIND_LIBRARY_SUFFIXES ".a" ".dylib")
++endif()
++
++# Ensure reproducible builds by removing absolute paths from binaries
++if(UNIX AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
++    add_compile_options(-ffile-prefix-map=${CMAKE_SOURCE_DIR}=.)
 +endif()
 +
 +if(NOT ATMOSIC_ZSG)
@@ -121,6 +181,11 @@ index a924bc8..ba67236 100644
 +  message(STATUS "ATMOSIC_ZSG is ON")
 +  add_definitions(-DATMOSIC_ZSG)
 +  include(FetchContent)
++
++  # Build yaml-cpp as static library
++  set(YAML_CPP_BUILD_SHARED_LIBS OFF CACHE BOOL "Build yaml-cpp shared library" FORCE)
++  set(YAML_BUILD_SHARED_LIBS OFF CACHE BOOL "Build yaml-cpp shared library" FORCE)
++
 +  FetchContent_Declare(
 +    yaml-cpp
 +    GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
@@ -136,75 +201,1026 @@ index a924bc8..ba67236 100644
  
  set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${PROJECT_SOURCE_DIR}/cmake")
  include(MunkeiVersionFromGit)
+diff --git a/Makefile b/Makefile
+new file mode 100644
+index 0000000..e1381c8
+--- /dev/null
++++ b/Makefile
+@@ -0,0 +1,64 @@
++# SPDX-FileCopyrightText: 2025 Atmosic
++# SPDX-License-Identifier: Apache-2.0
++#
++# Convenience Makefile for building zephyr-settings-generator
++
++.PHONY: all static dynamic clean install help
++
++# Default target
++all: static
++
++# Build statically linked binary (recommended for cross-distribution compatibility)
++static:
++	@echo "Building static binary..."
++	@./build_static.sh
++
++# Build dynamically linked binary (smaller, but may have compatibility issues)
++dynamic:
++	@echo "Building dynamic binary..."
++	@mkdir -p build
++	@cd build && cmake -GNinja -DCMAKE_BUILD_TYPE=Release -DATMOSIC_ZSG=ON .. && ninja
++
++# Clean all build artifacts
++clean:
++	@echo "Cleaning build directories..."
++	@rm -rf build build-static
++
++# Install the binary (requires sudo for system-wide installation)
++install:
++	@if [ -f build-static/src/zsg ]; then \
++		echo "Installing static binary..."; \
++		cd build-static && ninja install; \
++	elif [ -f build/src/zsg ]; then \
++		echo "Installing dynamic binary..."; \
++		cd build && ninja install; \
++	else \
++		echo "Error: No binary found. Run 'make static' or 'make dynamic' first."; \
++		exit 1; \
++	fi
++
++# Show help
++help:
++	@echo "Zephyr Settings Generator - Build Targets"
++	@echo ""
++	@echo "Usage: make [target]"
++	@echo ""
++	@echo "Targets:"
++	@echo "  all (default)  - Build static binary"
++	@echo "  static         - Build statically linked binary (recommended)"
++	@echo "  dynamic        - Build dynamically linked binary"
++	@echo "  clean          - Remove all build artifacts"
++	@echo "  install        - Install binary to system (requires sudo)"
++	@echo "  help           - Show this help message"
++	@echo ""
++	@echo "Environment Variables:"
++	@echo "  BUILD_DIR      - Build directory (default: build-static)"
++	@echo "  BUILD_TYPE     - CMake build type (default: Release)"
++	@echo "  INSTALL_PREFIX - Installation prefix (default: /usr/local)"
++	@echo ""
++	@echo "Examples:"
++	@echo "  make static                    # Build static binary"
++	@echo "  make clean && make static      # Clean rebuild"
++	@echo "  sudo make install              # Install to /usr/local/bin"
++	@echo "  BUILD_TYPE=Debug make static   # Build debug version"
++
 diff --git a/Readme.md b/Readme.md
-index a01c989..4f44ca8 100644
+deleted file mode 100644
+index a01c989..0000000
 --- a/Readme.md
-+++ b/Readme.md
-@@ -26,6 +26,7 @@ For more information on the Zephyr settings subsystem see: https://docs.zephyrpr
- ## How to build
- To build zsg you need
- - `libboost programm options` with version >= 1.67.
-+- `yaml-cpp` with version >= 0.8.0 (For Atmosic special application)
- - `CMake` with version >= 3.6
- - Compiler with C++17 support
- - Ninja or Make as buildtool
-@@ -46,3 +47,55 @@ after building.
- 
- # License
- This Software is licensed under [BSD-2-Clause Plus Patent License](https://spdx.org/licenses/BSD-2-Clause-Patent)
++++ /dev/null
+@@ -1,48 +0,0 @@
+-<!--
+-SPDX-FileCopyrightText: 2023 Albert Krenz <albert.krenz@mailbox.org>
+-SPDX-License-Identifier: CC0-1.0
+--->
+-
+-# What is zsg?
+-zsg is the short term for "Zephyr Settings Generator". It is a simple command line utility to generate flash images (in binary format) for the zephyr settings Subsystem with NVS backend.
+-
+-It can be used e.g. during the manufacturing process to create a settings binary on the fly with values for
+-
+-- serial number
+-- MAC address
+-- manufacturing date
+-- credentials
+-- etc.
+-
+-An example could look like
+-
+-    zsg -o settings.bin data/serialnumber:string:ABC12345 data/MAC:string:AA-BB-CC-DD-EE-FF data/manufacturing-data:string:2023-09-01 data/id:u32:123456
+-
+-The generated binary must be flashed at the location of the `storage` partition of your Board (e.g. by using JFlash).
+-
+-For more information on the Zephyr settings subsystem see: https://docs.zephyrproject.org/latest/services/settings/index.html
+-
+-# Build and installing
+-## How to build
+-To build zsg you need
+-- `libboost programm options` with version >= 1.67.
+-- `CMake` with version >= 3.6
+-- Compiler with C++17 support
+-- Ninja or Make as buildtool
+-
+-If you want to build via Ninja use the following commands:
+-
+-    $ mkdir build
+-    $ cd build
+-    $ cmake -GNinja -DCMAKE_RELEASE_TYPE=Release ..
+-    $ ninja
+-
+-## How to install
+-You can install zsg either by one of the provided Install packages from the [Release page](https://gitlab.com/oha4/zephyr-settings-generator/-/releases), or directly via
+-
+-    § ninja install
+-
+-after building.
+-
+-# License
+-This Software is licensed under [BSD-2-Clause Plus Patent License](https://spdx.org/licenses/BSD-2-Clause-Patent)
+diff --git a/build_static.bat b/build_static.bat
+new file mode 100644
+index 0000000..edcb781
+--- /dev/null
++++ b/build_static.bat
+@@ -0,0 +1,142 @@
++@echo off
++REM SPDX-FileCopyrightText: 2025 Atmosic
++REM SPDX-License-Identifier: Apache-2.0
 +
-+=============== For Atmosic special application ===============
++REM Script to build zephyr-settings-generator as a statically linked binary on Windows
++REM This creates a binary that includes the C/C++ runtime and can run on any Windows system
 +
-+Previously, configuring through Boost was difficult to maintain with large amounts of data, so the data source has been standardized to the YAML file format.
-+The maximum length of the Tag Value in the YAML file currently supports up to 1024 bytes.
-+Set 'ATMOSIC_ZSG' in CMakeLists.txt to ON to enable this feature.
++setlocal enabledelayedexpansion
 +
-+# Execution example
-+1. To generate binary string data to the settings storage area(Data read from YAML file):
++REM Configuration
++set BUILD_DIR=build-static
++set BUILD_TYPE=Release
++set GENERATOR=Ninja
++
++REM Check if user wants to clean
++if "%1"=="clean" (
++    echo Cleaning build directory...
++    if exist %BUILD_DIR% rmdir /s /q %BUILD_DIR%
++)
++
++REM Check for CMake
++where cmake >nul 2>nul
++if %ERRORLEVEL% neq 0 (
++    echo ERROR: CMake not found in PATH
++    echo Please install CMake and add it to your PATH
++    exit /b 1
++)
++
++REM Check for Ninja (optional, will fall back to Visual Studio)
++where ninja >nul 2>nul
++if %ERRORLEVEL% neq 0 (
++    echo WARNING: Ninja not found, using Visual Studio generator
++    set GENERATOR=Visual Studio 17 2022
++)
++
++echo ========================================
++echo Building zephyr-settings-generator (Windows Static)
++echo ========================================
++echo Build directory: %BUILD_DIR%
++echo Build type: %BUILD_TYPE%
++echo Generator: %GENERATOR%
++echo ========================================
++echo.
++
++REM Create build directory
++if not exist %BUILD_DIR% mkdir %BUILD_DIR%
++cd %BUILD_DIR%
++
++REM Configure with CMake
++echo Configuring with CMake...
++if "%GENERATOR%"=="Ninja" (
++    cmake -G "%GENERATOR%" ^
++        -DCMAKE_BUILD_TYPE=%BUILD_TYPE% ^
++        -DBUILD_STATIC=ON ^
++        -DATMOSIC_ZSG=ON ^
++        ..
++) else (
++    cmake -G "%GENERATOR%" ^
++        -DBUILD_STATIC=ON ^
++        -DATMOSIC_ZSG=ON ^
++        ..
++)
++
++if %ERRORLEVEL% neq 0 (
++    echo ERROR: CMake configuration failed
++    cd ..
++    exit /b 1
++)
++
++REM Build
++echo.
++echo Building...
++if "%GENERATOR%"=="Ninja" (
++    ninja
++) else (
++    cmake --build . --config %BUILD_TYPE%
++)
++
++if %ERRORLEVEL% neq 0 (
++    echo ERROR: Build failed
++    cd ..
++    exit /b 1
++)
++
++REM Find the binary
++if "%GENERATOR%"=="Ninja" (
++    set BINARY_PATH=src\zsg.exe
++) else (
++    set BINARY_PATH=src\%BUILD_TYPE%\zsg.exe
++)
++
++REM Verify the binary exists
++if not exist %BINARY_PATH% (
++    echo ERROR: Binary not found at %BINARY_PATH%
++    echo Searching for binary...
++    if exist src\zsg.exe (
++        set BINARY_PATH=src\zsg.exe
++        echo Found at src\zsg.exe
++    ) else if exist src\%BUILD_TYPE%\zsg.exe (
++        set BINARY_PATH=src\%BUILD_TYPE%\zsg.exe
++        echo Found at src\%BUILD_TYPE%\zsg.exe
++    ) else if exist zsg.exe (
++        set BINARY_PATH=zsg.exe
++        echo Found at zsg.exe
++    ) else if exist %BUILD_TYPE%\zsg.exe (
++        set BINARY_PATH=%BUILD_TYPE%\zsg.exe
++        echo Found at %BUILD_TYPE%\zsg.exe
++    ) else (
++        echo ERROR: Binary not found in any expected location
++        cd ..
++        exit /b 1
++    )
++)
++
++echo.
++echo ========================================
++echo Build complete!
++echo ========================================
++echo Binary location: %BUILD_DIR%\%BINARY_PATH%
++echo.
++
++REM Check dependencies
++echo Checking binary dependencies...
++where dumpbin >nul 2>nul
++if %ERRORLEVEL% equ 0 (
++    echo.
++    echo DLL Dependencies:
++    dumpbin /dependents "%BINARY_PATH%" | findstr /i ".dll"
++    echo.
++    echo Note: Only system DLLs ^(kernel32.dll, etc.^) should be listed
++) else (
++    echo Note: dumpbin not found. Install Visual Studio to check dependencies.
++)
++
++echo.
++echo To test the binary, run:
++echo   %BUILD_DIR%\%BINARY_PATH% --help
++echo.
++
++cd ..
++endlocal
++
+diff --git a/build_static.sh b/build_static.sh
+new file mode 100755
+index 0000000..c1913f7
+--- /dev/null
++++ b/build_static.sh
+@@ -0,0 +1,74 @@
++#!/bin/bash
++# SPDX-FileCopyrightText: 2025 Atmosic
++# SPDX-License-Identifier: Apache-2.0
++
++# Script to build zephyr-settings-generator as a statically linked binary
++# This creates a binary that can run on Rocky Linux and other distributions
++# without dynamic library version dependencies
++
++set -e
++
++BUILD_DIR="${BUILD_DIR:-build-static}"
++BUILD_TYPE="${BUILD_TYPE:-Release}"
++INSTALL_PREFIX="${INSTALL_PREFIX:-/usr/local}"
++
++echo "Building zephyr-settings-generator as static binary..."
++echo "  Build directory: $BUILD_DIR"
++echo "  Build type: $BUILD_TYPE"
++echo "  Install prefix: $INSTALL_PREFIX"
++
++# Clean build directory if requested
++if [ "$1" == "clean" ]; then
++    echo "Cleaning build directory..."
++    rm -rf "$BUILD_DIR"
++fi
++
++# Create build directory
++mkdir -p "$BUILD_DIR"
++cd "$BUILD_DIR"
++
++# Configure with static linking enabled
++cmake -GNinja \
++    -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
++    -DCMAKE_INSTALL_PREFIX="$INSTALL_PREFIX" \
++    -DBUILD_STATIC=ON \
++    -DATMOSIC_ZSG=ON \
++    ..
++
++# Build
++ninja
++
++# Find the binary
++BINARY_PATH=""
++if [ -f "src/zsg" ]; then
++    BINARY_PATH="src/zsg"
++elif [ -f "zsg" ]; then
++    BINARY_PATH="zsg"
++else
++    echo "ERROR: Binary not found in expected locations (src/zsg or zsg)"
++    exit 1
++fi
++
++# Verify the binary is statically linked
++echo ""
++echo "Checking binary linkage..."
++if command -v ldd &> /dev/null; then
++    echo "Running 'ldd $BINARY_PATH':"
++    ldd "$BINARY_PATH" || echo "Binary is statically linked (ldd failed as expected)"
++fi
++
++if command -v file &> /dev/null; then
++    echo ""
++    echo "File type:"
++    file "$BINARY_PATH"
++fi
++
++echo ""
++echo "Build complete! Binary location: $BUILD_DIR/$BINARY_PATH"
++echo ""
++echo "To test the binary, run:"
++echo "  $BUILD_DIR/$BINARY_PATH --help"
++echo ""
++echo "To install, run: ninja install"
++echo "Or copy manually: cp $BUILD_DIR/$BINARY_PATH /usr/local/bin/zsg"
++
+diff --git a/docs/BUILD.md b/docs/BUILD.md
+new file mode 100644
+index 0000000..7778aa1
+--- /dev/null
++++ b/docs/BUILD.md
+@@ -0,0 +1,335 @@
++# Build Instructions
++
++## Quick Start
++
++### Linux
++```bash
++cd zephyr-settings-generator
++make static          # Build fully static binary
 +```
-+Usage: zsg.exe write [yaml_file] [partition_sector_size] [partition_size] [bin_output_file]
++
++Binary location: `build-static/src/zsg`
++
++### macOS
++```bash
++cd zephyr-settings-generator
++make static          # Build with static libraries where possible
 +```
 +
-+- Windows example:
-+$ cd build
-+§ src\\zsg.exe write ..\\factory.yml 1024 2048 ..\\factory.bin
++Binary location: `build-static/src/zsg`
 +
-+- Linux example:
-+$ cd build
-+§ src/zsg write ../factory.yml 1024 2048 ../factory.bin
++**Note:** macOS does not support full static linking. The binary will use static libraries where possible but will still link dynamically to system frameworks.
 +
-+2. Read NVS information from a bin file and save it to a YAML file(Data read from NVS file).
++### Windows
++```cmd
++cd zephyr-settings-generator
++build_static.bat     # Build static binary
 +```
-+Usage: zsg.exe read [bin_file] [FACTORY | SETTINGS] [partition_sector_size] [partition_size] [yaml_output_file]
++
++Binary location: `build-static\src\zsg.exe` or `build-static\src\Release\zsg.exe`
++
++---
++
++## Requirements
++
++### All Platforms
++- **CMake** >= 3.13
++- **C++ Compiler** with C++17 support
++- **Build Tool**: Ninja (recommended) or Make
++
++### Linux
++```bash
++# Rocky Linux / RHEL / CentOS
++sudo dnf install gcc-c++ cmake ninja-build git
++
++# Ubuntu / Debian
++sudo apt-get install build-essential cmake ninja-build git
 +```
-+- Windows example:
-+$ cd build
-+§ src\\zsg.exe read ..\\factory.bin FACTORY 1024 2048 ..\\factory.yml
 +
-+- Linux example:
-+$ cd build
-+§ src/zsg read ../factory.bin FACTORY 1024 2048 ../factory.yml
++### Windows
++- **Visual Studio 2019/2022** with "Desktop development with C++"
++- **CMake** (https://cmake.org/download/)
++- **Ninja** (optional, recommended)
 +
-+3. Show NVS information from a bin file(Data read from NVS file).
++### macOS
++```bash
++xcode-select --install
++brew install cmake ninja
 +```
-+Usage: zsg.exe show [bin_file] [FACTORY | SETTINGS] [partition_sector_size] [partition_size] [show_pretty | show_verbose]
++
++---
++
++## Build Methods
++
++### Method 1: Using Build Scripts (Recommended)
++
++**Linux/macOS:**
++```bash
++./build_static.sh
 +```
-+- Windows example:
-+$ cd build
-+§ src\\zsg.exe show ..\\factory.bin FACTORY 1024 2048 show_pretty
-+§ src\\zsg.exe show ..\\factory.bin FACTORY 1024 2048 show_verbose
 +
-+- Linux example:
-+$ cd build
-+§ src/zsg show ../factory.bin FACTORY 1024 2048 show_pretty
-+§ src/zsg show ../factory.bin FACTORY 1024 2048 show_verbose
++**Windows:**
++```cmd
++build_static.bat
++```
 +
-+# Yaml file format
-+Please refer to the 'sample.yml' in the directory
++### Method 2: Using Makefile (Linux/macOS only)
 +
-+# Attribute Yaml file
-+When converting a YAML file to a binary file, the Tag Value types will be recorded in <bin_file_name>_attr.yml. Later, if the binary file needs to be converted back to a YAML file, this file will be referenced for the conversion (if the file does not exist, the values will be treated as hexadecimal by default).
-\ No newline at end of file
++```bash
++make static          # Build static binary
++make clean           # Clean build artifacts
++sudo make install    # Install to /usr/local/bin
++```
++
++### Method 3: Manual CMake
++
++**Linux/macOS:**
++```bash
++mkdir build-static
++cd build-static
++cmake -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_STATIC=ON ..
++cmake --build .
++```
++
++**Windows:**
++```cmd
++mkdir build-static
++cd build-static
++cmake -G "Visual Studio 17 2022" -DCMAKE_BUILD_TYPE=Release -DBUILD_STATIC=ON ..
++cmake --build . --config Release
++```
++
++---
++
++## CMake Options
++
++| Option | Default | Description |
++|--------|---------|-------------|
++| `BUILD_STATIC` | OFF | Enable static linking |
++| `ATMOSIC_ZSG` | ON | Enable YAML support |
++| `CMAKE_BUILD_TYPE` | Release | Debug or Release |
++
++Example:
++```bash
++cmake -DBUILD_STATIC=ON -DCMAKE_BUILD_TYPE=Release ..
++```
++
++---
++
++## Verification
++
++### Test the Binary
++
++**Linux/macOS:**
++```bash
++./build-static/src/zsg --help
++./test_binary.sh
++```
++
++**Windows:**
++```cmd
++build-static\src\zsg.exe --help
++```
++
++### Verify Static Linking
++
++**Linux:**
++```bash
++ldd build-static/src/zsg
++# Should show "not a dynamic executable"
++
++file build-static/src/zsg
++# Should show "statically linked"
++```
++
++**Windows:**
++```cmd
++dumpbin /dependents build-static\src\zsg.exe
++REM Should only show system DLLs (KERNEL32.dll, etc.)
++REM Should NOT show MSVCP140.dll or VCRUNTIME140.dll
++```
++
++---
++
++## Troubleshooting
++
++### Linux: "cannot find -lstdc++fs"
++
++**Problem:** GCC version < 9.0 requires explicit linking of filesystem library.
++
++**Solution:** Upgrade GCC:
++```bash
++# Rocky Linux / RHEL
++sudo dnf install gcc-toolset-11
++scl enable gcc-toolset-11 bash
++
++# Ubuntu
++sudo apt-get install g++-11
++export CXX=g++-11
++```
++
++### Linux: "GLIBC_2.XX not found"
++
++**Problem:** Binary built on newer system won't run on older systems.
++
++**Solution:** Use static linking (already enabled with `BUILD_STATIC=ON`).
++
++### Windows: "Binary requires MSVCP140.dll"
++
++**Problem:** Dynamic linking to C++ runtime.
++
++**Solution:** Rebuild with static linking:
++```cmd
++rmdir /s /q build-static
++build_static.bat
++```
++
++### Windows: "CMake could not find Visual Studio"
++
++**Problem:** Visual Studio not installed or not detected.
++
++**Solution:**
++1. Install Visual Studio 2019/2022 with "Desktop development with C++"
++2. Or specify generator manually:
++   ```cmd
++   cmake -G "Visual Studio 17 2022" ..
++   ```
++
++### All Platforms: "yaml-cpp not found"
++
++**Problem:** yaml-cpp dependency not available.
++
++**Solution:** CMake will automatically fetch yaml-cpp. Ensure internet connection is available during first build.
++
++---
++
++## Cross-Distribution Compatibility (Linux)
++
++### Problem
++
++Tools built on newer systems (e.g., urchin with glibc 2.34) won't run on older systems (e.g., Rocky Linux with glibc 2.17).
++
++### Solution
++
++Use static linking with `BUILD_STATIC=ON`:
++
++```bash
++make static
++```
++
++This creates a fully static binary that runs on any Linux distribution.
++
++### Verification
++
++```bash
++ldd build-static/zsg
++# Should output: "not a dynamic executable"
++```
++
++---
++
++## Advanced Topics
++
++### Building for Specific Distribution
++
++**Option 1: Build on target system**
++```bash
++# On Rocky Linux
++make static
++```
++
++**Option 2: Use Docker**
++```bash
++docker run --rm -v $(pwd):/work -w /work rockylinux:8 bash -c "
++  dnf install -y gcc-c++ cmake ninja-build git &&
++  make static
++"
++```
++
++### Custom Installation Path
++
++```bash
++cmake -DCMAKE_INSTALL_PREFIX=/opt/zsg ..
++make
++sudo make install
++```
++
++### Debug Build
++
++```bash
++cmake -DCMAKE_BUILD_TYPE=Debug -DBUILD_STATIC=ON ..
++cmake --build .
++```
++
++---
++
++## CI/CD Integration
++
++### GitHub Actions Example
++
++```yaml
++name: Build
++
++on: [push, pull_request]
++
++jobs:
++  build-linux:
++    runs-on: ubuntu-latest
++    steps:
++      - uses: actions/checkout@v3
++      - name: Install dependencies
++        run: sudo apt-get install -y build-essential cmake ninja-build
++      - name: Build
++        run: make static
++      - name: Test
++        run: ./test_binary.sh build-static/zsg
++
++  build-windows:
++    runs-on: windows-latest
++    steps:
++      - uses: actions/checkout@v3
++      - name: Build
++        run: build_static.bat
++      - name: Test
++        run: build-static\zsg.exe --version
++```
++
++### Jenkins Example
++
++```groovy
++pipeline {
++    agent any
++    stages {
++        stage('Build') {
++            steps {
++                sh 'make static'
++            }
++        }
++        stage('Test') {
++            steps {
++                sh './test_binary.sh build-static/zsg'
++            }
++        }
++    }
++}
++```
++
++---
++
++## Binary Size Comparison
++
++| Platform | Dynamic | Static | Notes |
++|----------|---------|--------|-------|
++| Linux | ~1-2 MB | ~8 MB | Includes glibc, libstdc++ |
++| Windows | ~500 KB | ~2-3 MB | Includes C++ runtime |
++| macOS | ~1 MB | ~5 MB | System frameworks still dynamic |
++
++Static binaries are larger but have no external dependencies.
++
++---
++
++## See Also
++
++- [USAGE.md](USAGE.md) - How to use zsg
++- [README.md](README.md) - Project overview
++
+diff --git a/docs/README.md b/docs/README.md
+new file mode 100644
+index 0000000..acdefc9
+--- /dev/null
++++ b/docs/README.md
+@@ -0,0 +1,76 @@
++# Zephyr Settings Generator (zsg)
++
++A command-line tool for generating and managing Zephyr RTOS NVS (Non-Volatile Storage) settings binaries.
++
++## Features
++
++- ✅ Generate settings binaries from YAML configuration files
++- ✅ Read and export existing NVS binaries to YAML
++- ✅ Support for multiple data types (string, u8, u16, u32, u64, binary)
++- ✅ Cross-platform support (Linux, Windows, macOS)
++- ✅ Static linking for maximum compatibility
++
++## Quick Start
++
++### Linux/macOS
++```bash
++cd zephyr-settings-generator
++make static                  # Build static binary
++./build-static/src/zsg --help # Test
++```
++
++### Windows
++```cmd
++cd zephyr-settings-generator
++build_static.bat             # Build static binary
++build-static\src\zsg.exe --help
++```
++
++## Basic Usage
++
++### Generate Binary from YAML
++```bash
++zsg write factory.yml 1024 2048 factory.bin
++```
++
++### Read Binary to YAML
++```bash
++zsg read factory.bin FACTORY 1024 2048 output.yml
++```
++
++### Show Binary Contents
++```bash
++zsg show factory.bin FACTORY 1024 2048 show_pretty
++```
++
++### Scan ATE Information
++```bash
++zsg scan factory.bin 1024 2048
++```
++
++## Documentation
++
++- **[BUILD.md](BUILD.md)** - Build instructions for all platforms
++- **[USAGE.md](USAGE.md)** - Complete usage guide with examples
++
++## YAML Example
++
++```yaml
++settings:
++  - tag: "device/serial_number"
++    value: "ABC12345"
++    type: "string"
++
++  - tag: "device/id"
++    value: 123456
++    type: "u32"
++```
++
++See [sample.yml](../sample.yml) for more examples.
++
++## License
++
++This software is licensed under [BSD-2-Clause Plus Patent License](https://spdx.org/licenses/BSD-2-Clause-Patent).
++
++
++
+diff --git a/docs/USAGE.md b/docs/USAGE.md
+new file mode 100644
+index 0000000..1fe7bd1
+--- /dev/null
++++ b/docs/USAGE.md
+@@ -0,0 +1,239 @@
++# Usage Guide
++
++## Overview
++
++`zsg` (Zephyr Settings Generator) operates in two modes:
++
++1. **YAML Mode** - For complex configurations with YAML files
++2. **Command-line Mode** - For simple configurations via command-line arguments
++
++---
++
++## Commands
++
++| Command | Purpose | Syntax |
++|---------|---------|--------|
++| `write` | Generate binary from YAML | `zsg write <yaml> <sector_size> <partition_size> <output.bin>` |
++| `read` | Export binary to YAML | `zsg read <bin> <type> <sector_size> <partition_size> <output.yml>` |
++| `show` | Display NVS contents | `zsg show <bin> <type> <sector_size> <partition_size> <mode>` |
++| `scan` | Scan ATE information | `zsg scan <bin> <sector_size> <partition_size>` |
++| `-o` | Command-line mode | `zsg -o <output.bin> <tag:type:value> ...` |
++
++---
++
++## YAML Mode
++
++### 1. Write: Generate Binary from YAML
++
++Convert a YAML configuration file to a binary NVS image.
++
++```bash
++zsg write <yaml_file> <sector_size> <partition_size> <output.bin>
++```
++
++**Example:**
++```bash
++zsg write factory.yml 1024 2048 factory.bin
++```
++
++**Output:**
++- `factory.bin` - Binary NVS image
++- `factory_attr.yml` - Attribute file (stores type information)
++
++### 2. Read: Export Binary to YAML
++
++Convert a binary NVS image back to YAML format.
++
++```bash
++zsg read <bin_file> <FACTORY|SETTINGS> <sector_size> <partition_size> <output.yml>
++```
++
++**Example:**
++```bash
++zsg read factory.bin FACTORY 1024 2048 factory_readback.yml
++```
++
++**Note:** Requires the corresponding `_attr.yml` file for proper type conversion.
++
++### 3. Show: Display NVS Information
++
++Display the contents of a binary NVS image.
++
++```bash
++zsg show <bin_file> <FACTORY|SETTINGS> <sector_size> <partition_size> <show_pretty|show_verbose>
++```
++
++**Examples:**
++```bash
++# Pretty format (human-readable)
++zsg show factory.bin FACTORY 1024 2048 show_pretty
++
++# Verbose format (with hex dumps)
++zsg show factory.bin FACTORY 1024 2048 show_verbose
++```
++
++### 4. Scan: Scan ATE Information
++
++Scan and display ATE (Automatic Test Equipment) information from binary.
++
++```bash
++zsg scan <bin_file> <sector_size> <partition_size>
++```
++
++**Example:**
++```bash
++zsg scan factory.bin 1024 2048
++```
++
++---
++
++## YAML File Format
++
++### Basic Structure
++
++```yaml
++settings:
++  - tag: "device/serial_number"
++    value: "ABC12345"
++    type: "string"
++
++  - tag: "device/mac_address"
++    value: "AA:BB:CC:DD:EE:FF"
++    type: "string"
++
++  - tag: "config/baudrate"
++    value: 115200
++    type: "u32"
++
++  - tag: "config/enabled"
++    value: 1
++    type: "u8"
++```
++
++### Field Descriptions
++
++- **tag** - Settings key (path-like structure with `/` separator)
++- **value** - The actual value to store
++- **type** - Data type (see [Data Types](#data-types))
++
++### Complete Example
++
++See [`sample.yml`](../sample.yml) in the repository root.
++
++---
++
++## Command-line Mode
++
++For simple configurations without YAML files:
++
++```bash
++zsg -o <output.bin> <tag:type:value> [<tag:type:value> ...]
++```
++
++**Example:**
++```bash
++zsg -o settings.bin \
++  data/serial:string:ABC12345 \
++  data/mac:string:AA:BB:CC:DD:EE:FF \
++  data/id:u32:123456
++```
++
++---
++
++## Data Types
++
++| Type | Description | Size | Example Value |
++|------|-------------|------|---------------|
++| `string` | ASCII string | Variable | `"Hello World"` |
++| `u8` | Unsigned 8-bit integer | 1 byte | `255` |
++| `u16` | Unsigned 16-bit integer | 2 bytes | `65535` |
++| `u32` | Unsigned 32-bit integer | 4 bytes | `4294967295` |
++| `u64` | Unsigned 64-bit integer | 8 bytes | `18446744073709551615` |
++| `binary` | Raw binary data (hex) | Variable | `48656C6C6F` (hex for "Hello") |
++
++**Notes:**
++- Strings are automatically null-terminated
++- Integers are stored in little-endian format
++- Binary data is specified as hexadecimal (without `0x` prefix)
++- Maximum value length: 1024 bytes
++
++---
++
++## Examples
++
++### Device Provisioning
++
++```yaml
++settings:
++  - tag: "device/serial_number"
++    value: "DEV-2024-12345"
++    type: "string"
++
++  - tag: "device/mac_address"
++    value: "00:11:22:33:44:55"
++    type: "string"
++
++  - tag: "device/hw_version"
++    value: 2
++    type: "u8"
++```
++
++Generate binary:
++```bash
++zsg write device.yml 4096 8192 device.bin
++```
++
++### WiFi Configuration
++
++```yaml
++settings:
++  - tag: "wifi/ssid"
++    value: "MyNetwork"
++    type: "string"
++
++  - tag: "wifi/password"
++    value: "SecurePassword123"
++    type: "string"
++
++  - tag: "wifi/channel"
++    value: 6
++    type: "u8"
++```
++
++Generate binary:
++```bash
++zsg write wifi.yml 1024 2048 wifi.bin
++```
++
++### Verification
++
++```bash
++# Generate binary
++zsg write config.yml 1024 2048 config.bin
++
++# Verify by reading back
++zsg read config.bin FACTORY 1024 2048 config_verify.yml
++
++# Compare
++diff config.yml config_verify.yml
++```
++
++---
++
++## Tips
++
++- Use YAML mode for complex configurations (>5 settings)
++- Keep YAML files in version control
++- Partition size should be multiple of sector size
++- Allow room for growth (2-3x current data size)
++- Keep `*_attr.yml` files for accurate read-back
++- Use `/` separator in tag names (e.g., `device/serial_number`)
++
++---
++
++## See Also
++
++- [BUILD.md](BUILD.md) - Build instructions
++- [sample.yml](../sample.yml) - Complete YAML example
++- [Zephyr Settings Documentation](https://docs.zephyrproject.org/latest/services/settings/index.html)
++
 diff --git a/run_zsg.bat b/run_zsg.bat
 new file mode 100644
 index 0000000..673b035
@@ -299,10 +1315,10 @@ index bad7beb..8b27c8c 100644
 \ No newline at end of file
 diff --git a/src/atmosic/CMakeLists.txt b/src/atmosic/CMakeLists.txt
 new file mode 100644
-index 0000000..d9e23c8
+index 0000000..d1d520a
 --- /dev/null
 +++ b/src/atmosic/CMakeLists.txt
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,24 @@
 +# SPDX-FileCopyrightText: 2024-2025 Atmosic
 +# SPDX-License-Identifier: Apache-2.0
 +
@@ -319,7 +1335,13 @@ index 0000000..d9e23c8
 +target_link_libraries(atmosic PUBLIC nvs settings yaml-cpp)
 +
 +if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
++    # Link filesystem library (needed for older GCC versions)
 +    target_link_libraries(atmosic PUBLIC stdc++fs)
++
++    # For static builds, also link pthread and dl
++    if(BUILD_STATIC)
++        target_link_libraries(atmosic PUBLIC pthread dl)
++    endif()
 +endif()
 \ No newline at end of file
 diff --git a/src/atmosic/atm_log.cpp b/src/atmosic/atm_log.cpp
@@ -571,10 +1593,10 @@ index 0000000..df9becb
 +}
 diff --git a/src/atmosic/atm_tool.cpp b/src/atmosic/atm_tool.cpp
 new file mode 100644
-index 0000000..30705f1
+index 0000000..97c31e0
 --- /dev/null
 +++ b/src/atmosic/atm_tool.cpp
-@@ -0,0 +1,377 @@
+@@ -0,0 +1,628 @@
 +/*
 + * SPDX-FileCopyrightText: 2024-2025 Atmosic
 + * SPDX-License-Identifier: Apache-2.0
@@ -582,6 +1604,16 @@ index 0000000..30705f1
 +
 +#include "atm_tool.h"
 +#include "atm_log.h"
++
++#include <unordered_map>
++
++// For raw ATE scan
++#include <nvs.h>
++#include <nvs_priv.h>
++#include <settings.h>
++#include <settings/settings_nvs.h>
++#include <flash.h>
++#include <crc.h>
 +
 +std::vector<std::string> settings;
 +std::vector<std::string> attributes;
@@ -712,7 +1744,8 @@ index 0000000..30705f1
 +    if (argc != 7)
 +    {
 +        AtmLog::log_error("Usage: " + std::string(argv[0]) + " " + \
-+            std::string(argv[1]) + " [bin_file] [FACTORY | SETTINGS] " \
++            std::string(argv[1]) + " [bin_file] " \
++            "[FACTORY | ALL | SETTINGS] " \
 +            "[partition_sector_size] [partition_size] " \
 +            "[show_pretty | show_verbose]");
 +        return 1;
@@ -724,6 +1757,13 @@ index 0000000..30705f1
 +    uint16_t part_sector_size = AtmUtil::str2uint16(argv[4]);
 +    uint16_t part_size = AtmUtil::str2uint16(argv[5]);
 +    std::string show_type = argv[6];
++
++    if (part_sector_size == 0 || part_size == 0)
++    {
++        AtmLog::log_error("Both part_sector_size and part_size must be "
++            "greater than 0");
++        return 1;
++    }
 +
 +    if (!fs::exists(bin_file))
 +    {
@@ -800,6 +1840,207 @@ index 0000000..30705f1
 +    return 0;
 +}
 +
++
++static std::string classify_id(uint16_t id)
++{
++    if (id == 0xFFFF) return "CLOSE/GC";
++    if (id == NVS_NAMECNT_ID) return "NAMECNT";
++    if (id > NVS_NAMECNT_ID && id < (NVS_NAMECNT_ID + NVS_NAME_ID_OFFSET))
++        return "NAME";
++    if (id >= (NVS_NAMECNT_ID + NVS_NAME_ID_OFFSET) && id < 0xFFFF)
++        return "VALUE";
++    return "OTHER";
++}
++
++static bool ate_is_erased(const uint8_t *buf, size_t len, uint8_t erase_value)
++{
++    for (size_t i = 0; i < len; ++i) {
++        if (buf[i] != erase_value)
++            return false;
++    }
++    return true;
++}
++
++int scan_nvs_ate(int argc, char* argv[])
++{
++    if (argc != 5)
++    {
++        AtmLog::log_error("Usage: " + std::string(argv[0]) + " " + \
++            std::string(argv[1]) + " [bin_file] [partition_sector_size] " \
++            "[partition_size]");
++        return 1;
++    }
++
++    std::string bin_file = argv[2];
++    uint16_t block_size = AtmUtil::str2uint16(argv[3]);
++    uint16_t part_size = AtmUtil::str2uint16(argv[4]);
++
++    if (block_size == 0 || part_size == 0)
++    {
++        AtmLog::log_error("Both partition_sector_size and partition_size " \
++            "must be greater than 0");
++        return 1;
++    }
++    if (!fs::exists(bin_file))
++    {
++        AtmLog::log_error("Can't find " + bin_file + " file");
++        return 1;
++    }
++
++    // Compute NVS layout exactly like settings_backend_init (ATMOSIC_ZSG path)
++    size_t nvs_sector_size = CONFIG_SETTINGS_NVS_SECTOR_SIZE_MULT * block_size;
++    size_t nvs_size = 0;
++    uint16_t cnt = 0;
++    while (cnt < CONFIG_SETTINGS_NVS_SECTOR_COUNT)
++    {
++        nvs_size += nvs_sector_size;
++        if (nvs_size > part_size) break;
++        cnt++;
++    }
++    if (cnt == 0)
++    {
++        AtmLog::log_error("Computed sector_count is 0; check sizes");
++        return 1;
++    }
++
++    // Prepare a temporary nvs_fs bound to the file
++    struct nvs_fs fs_local{};
++    fs_local.sector_size = static_cast<uint16_t>(nvs_sector_size);
++    fs_local.sector_count = cnt;
++    fs_local.offset = 0;
++    fs_local.flash_device = flash_open((uint16_t)nvs_sector_size, cnt,
++        bin_file.c_str());
++    if (fs_local.flash_device == nullptr)
++    {
++        AtmLog::log_error("flash_open failed");
++        return 1;
++    }
++
++    // Mount to populate flash parameters (erase_value/write_block_size)
++    if (nvs_mount(&fs_local) != 0)
++    {
++        AtmLog::log_error("nvs_mount failed");
++        return 1;
++    }
++
++    const uint8_t erase_value = fs_local.flash_parameters->erase_value;
++    // write_block_size is 1 in our env
++    const size_t ate_size = sizeof(struct nvs_ate);
++
++    AtmLog::log_info("********* RAW ATE SCAN START *********");
++    AtmLog::log_info("sectors=" + std::to_string(fs_local.sector_count) +
++                     ", sector_size=" + std::to_string(fs_local.sector_size) +
++                     ", ate_size=" + std::to_string(ate_size));
++
++    std::vector<uint8_t> ate_buf(ate_size);
++    std::vector<std::string> scan_lines;
++    std::unordered_map<std::string, size_t> id_to_line;
++
++    char name_buf[128];
++    // cleared: tag id tracking handled via id_to_line
++    for (uint16_t s = 0; s < fs_local.sector_count; ++s)
++    {
++        off_t sector_base = fs_local.offset + static_cast<off_t>(s) * \
++            fs_local.sector_size;
++        for (int ate_off = static_cast<int>(fs_local.sector_size) - \
++            static_cast<int>(ate_size); ate_off >= 0; \
++            ate_off -= static_cast<int>(ate_size))
++        {
++            off_t file_off = sector_base + ate_off;
++            if (flash_read(fs_local.flash_device, file_off, ate_buf.data(),
++                ate_size) != 0)
++            {
++                AtmLog::log_error("flash_read failed at sector " + \
++                    std::to_string(s));
++                return 1;
++            }
++
++            if (ate_is_erased(ate_buf.data(), ate_size, erase_value))
++            {
++                continue; // skip fully erased slots
++            }
++
++            struct nvs_ate ate;
++            memcpy(&ate, ate_buf.data(), ate_size);
++
++            // Validate CRC and basic bounds
++            uint8_t crc = crc8_ccitt(0xFF, &ate,
++                offsetof(struct nvs_ate, crc8));
++            bool crc_ok = (crc == ate.crc8);
++            bool offs_ok = (ate.offset < (fs_local.sector_size - ate_size));
++
++            std::ostringstream oss;
++            std::ostringstream id_ss;
++            id_ss << "0x" << std::uppercase << std::hex
++                  << std::setw(4) << std::setfill('0') << ate.id;
++            std::string ate_id_str = id_ss.str();
++
++            oss << "Sector=" << s
++                << " ATE_OFF=0x" << std::hex << std::uppercase << ate_off
++                << " ID=" << ate_id_str
++                << std::dec
++                << " LEN=" << ate.len
++                << std::dec
++                << " TYPE=" << classify_id(ate.id);
++
++            if (!crc_ok || !offs_ok) {
++                continue;
++            }
++
++            // Skip non-NAME entries
++            if (ate.id <= NVS_NAMECNT_ID || ate.id > (NVS_NAMECNT_ID + \
++                NVS_NAME_ID_OFFSET)) {
++                continue;
++            }
++
++            // If this looks like a NAME entry, try to read and print the name
++            size_t to_read = std::min<size_t>(sizeof(name_buf) - 1, ate.len);
++            if (ate.offset + to_read > fs_local.sector_size) {
++                continue;
++            }
++
++            // Read the name
++            if (flash_read(fs_local.flash_device, sector_base + \
++                ate.offset, name_buf, to_read) != 0) {
++                continue;
++            }
++
++            name_buf[to_read] = '\0';
++            for (size_t i = 0; i < to_read; ++i)
++            {
++                const unsigned char uc =
++                    static_cast<unsigned char>(name_buf[i]);
++                if (uc < 0x20 || uc > 0x7E)
++                {
++                    name_buf[i] = '.';
++                }
++            }
++            oss << " >> NAME=\"" << name_buf << "\"";
++
++            // Integrate duplicate handling into id_to_line
++            auto [it_line, inserted] = id_to_line.try_emplace(
++                ate_id_str, scan_lines.size());
++            if (inserted) {
++                // First time: store original OSS content
++                scan_lines.push_back(oss.str());
++            } else {
++                // Duplicate: append note based on length
++                scan_lines[it_line->second] += (ate.len == 0)
++                    ? " (len=0 so removed)" : " (duplicated)";
++            }
++        }
++    }
++
++    // Print collected lines once, with duplicate annotations appended
++    for (const auto& line : scan_lines) {
++        AtmLog::log_info(line);
++    }
++
++    AtmLog::log_info("********* RAW ATE SCAN END *********");
++    return 0;
++}
++
++
 +int bin_to_yaml(int argc, char* argv[])
 +{
 +    if (argc != 7)
@@ -816,6 +2057,13 @@ index 0000000..30705f1
 +    uint16_t part_sector_size = AtmUtil::str2uint16(argv[4]);
 +    uint16_t part_size = AtmUtil::str2uint16(argv[5]);
 +    std::string yaml_file = argv[6];
++
++    if (part_sector_size == 0 || part_size == 0)
++    {
++        AtmLog::log_error("Both part_sector_size and part_size must be "
++            "greater than 0");
++        return 1;
++    }
 +
 +    if (!fs::exists(bin_file))
 +    {
@@ -869,6 +2117,13 @@ index 0000000..30705f1
 +    uint16_t part_size = AtmUtil::str2uint16(argv[4]);
 +    std::string bin_file = argv[5];
 +
++    if (part_sector_size == 0 || part_size == 0)
++    {
++        AtmLog::log_error("Both part_sector_size and part_size must be "
++            "greater than 0");
++        return 1;
++    }
++
 +    if (!fs::exists(yaml_file))
 +    {
 +        AtmLog::log_error("Can't find " + yaml_file + " yaml file");
@@ -915,9 +2170,23 @@ index 0000000..30705f1
 +        << "General Options:\n"
 +        << "  -h, --help         Show this help message\n"
 +        << "\nInput/Output:\n"
-+        << "  read [bin_file] [FACTORY | SETTINGS] [partition_sector_size] [partition_size] [yaml_output_file]\n    Read NVS information from a bin file and save it to a YAML file\n\n"
-+        << "  write [yaml_file] [partition_sector_size] [partition_size] [bin_output_file]\n    To generate binary string data to the settings storage area\n\n"
-+        << "  show [bin_file] [FACTORY | SETTINGS] [partition_sector_size] [partition_size] [show_pretty | show_verbose]\n    Display current binary file information\n\n";
++        << "  read [bin_file] [FACTORY | SETTINGS] [partition_sector_size]\n"
++        << "       [partition_size] [yaml_output_file]\n"
++        << "       Read NVS information from a bin file and save it to a\n"
++        << "       YAML file\n\n"
++        << "  write [yaml_file] [partition_sector_size] [partition_size]\n"
++        << "       [bin_output_file]\n"
++        << "       To generate binary string data to the settings storage\n"
++        << "       area\n\n"
++        << "  show [bin_file]\n"
++        << "       [FACTORY | ALL | SETTINGS]\n"
++        << "       [partition_sector_size]\n"
++        << "       [partition_size] [show_pretty | show_verbose]\n"
++        << "       Display current binary file information\n\n"
++        << "  scan [bin_file] [partition_sector_size] [partition_size]\n"
++        << "       Raw ATE scan (lists all ATEs with validity, id, len,\n"
++        << "       off, type; "
++        << "forensics mode)\n\n";
 +}
 +
 +int AtmTool::run_tool(int argc, char *argv[])
@@ -943,6 +2212,10 @@ index 0000000..30705f1
 +    else if (strcmp(argv[1], "show") == 0)
 +    {
 +        return show_bin_info(argc, argv);
++    }
++    else if (strcmp(argv[1], "scan") == 0)
++    {
++        return scan_nvs_ate(argc, argv);
 +    }
 +    else
 +    {
@@ -1195,10 +2468,10 @@ index 0000000..e10d0c7
 \ No newline at end of file
 diff --git a/src/atmosic/include/atm_tool.h b/src/atmosic/include/atm_tool.h
 new file mode 100644
-index 0000000..8c24b3e
+index 0000000..4e95d93
 --- /dev/null
 +++ b/src/atmosic/include/atm_tool.h
-@@ -0,0 +1,22 @@
+@@ -0,0 +1,24 @@
 +/*
 + * SPDX-FileCopyrightText: 2024 Atmosic
 + * SPDX-License-Identifier: Apache-2.0
@@ -1208,6 +2481,8 @@ index 0000000..8c24b3e
 +#include <filesystem>
 +#include <vector>
 +#include <cstring>
++#include <sstream>
++#include <iomanip>
 +
 +#include "yaml-cpp/yaml.h"
 +#include "atm_settingswriter.h"
@@ -1443,6 +2718,50 @@ index ccf48a6..9ca7fb0 100644
  
  #ifdef __cplusplus
  extern "C" {
+diff --git a/src/nvs/nvs_priv.h b/src/nvs/nvs_priv.h
+index 4626bae..b852314 100644
+--- a/src/nvs/nvs_priv.h
++++ b/src/nvs/nvs_priv.h
+@@ -13,6 +13,23 @@
+ extern "C" {
+ #endif
+ 
++/* Define __packed if not already defined (only when ATMOSIC_ZSG is enabled) */
++#ifdef ATMOSIC_ZSG
++#ifndef __packed
++#if defined(_MSC_VER)
++/* MSVC uses #pragma pack instead of __attribute__ */
++#define __packed
++#define PACK_STRUCT_BEGIN __pragma(pack(push, 1))
++#define PACK_STRUCT_END __pragma(pack(pop))
++#else
++/* GCC/Clang use __attribute__ */
++#define __packed __attribute__((__packed__))
++#define PACK_STRUCT_BEGIN
++#define PACK_STRUCT_END
++#endif
++#endif
++#endif
++
+ /*
+  * MASKS AND SHIFT FOR ADDRESSES
+  * an address in nvs is an uint32_t where:
+@@ -33,6 +50,7 @@ extern "C" {
+ #define NVS_LOOKUP_CACHE_NO_ADDR 0xFFFFFFFF
+ 
+ /* Allocation Table Entry */
++PACK_STRUCT_BEGIN
+ struct nvs_ate {
+ 	uint16_t id;	/* data id */
+ 	uint16_t offset;	/* data offset within sector */
+@@ -40,6 +58,7 @@ struct nvs_ate {
+ 	uint8_t part;	/* part of a multipart data - future extension */
+ 	uint8_t crc8;	/* crc8 check of the entry */
+ } __packed;
++PACK_STRUCT_END
+ 
+ #ifdef __cplusplus
+ }
 diff --git a/src/settings/include/settings.h b/src/settings/include/settings.h
 index a393944..a407b3a 100644
 --- a/src/settings/include/settings.h
